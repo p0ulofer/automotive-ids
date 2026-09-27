@@ -4,8 +4,9 @@
 #                   que os pacotes SOME/IP e SOME/IP-SD trafegaram (pcap + scapy).
 #
 #   ./scripts/smoke_test.sh            # sobe, testa, deixa o ambiente de pé
-#   ./scripts/smoke_test.sh --down     # idem, mas termina o ambiente no fim
-#                                       (remove tambem as excecoes do host)
+#   ./scripts/smoke_test.sh --down     # SO derruba o ambiente e limpa o host
+#                                       (sem build, sem subir, sem testar;
+#                                        idempotente, exit 0)
 #   ./scripts/smoke_test.sh --host-raw up|down
 #                                       aplica/remove so as excecoes do
 #                                       raw PREROUTING do host (limpeza manual
@@ -203,13 +204,7 @@ cleanup() {
     local rc=$?
     stop_captures
     kill_apps
-    if [ "$TEARDOWN" = "1" ]; then
-        # --down: o ambiente e desfeito, portanto as regras do host tambem.
-        # Vale tambem se o script morrer a meio (die/trap) -- nunca ficam orfas.
-        # Regras ANTES de derrubar as redes (mesma ordem do passo 2).
-        host_raw_exceptions down || true
-        $COMPOSE down --remove-orphans >/dev/null 2>&1 || true
-    elif [ "$rc" -ne 0 ] && [ -f "$STATE_FILE" ]; then
+    if [ "$rc" -ne 0 ] && [ -f "$STATE_FILE" ]; then
         # Ambiente ficou de pé (e as regras sao necessarias enquanto ele existir).
         warn "o ambiente ficou de pé com as excecoes do host em $STATE_FILE"
         warn "terminar tudo com ./scripts/smoke_test.sh --down"
@@ -217,12 +212,21 @@ cleanup() {
     fi
 }
 
-TEARDOWN=0
 case "${1:-}" in
-    --down)     TEARDOWN=1 ;;
     --host-raw) host_raw_exceptions "${2:-}"; exit $? ;;
-    "")         ;;
-    *)          fail "argumento desconhecido: $1 (uso: [--down] [--host-raw up|down])"; exit 1 ;;
+    --down)
+        # So derruba: nao faz build, nao sobe as ECUs, nao testa.
+        # Idempotente -- sai com 0 mesmo que o ambiente ja esteja derrubado.
+        step "--down  Terminar o ambiente e limpar o host"
+        stop_captures
+        kill_apps
+        host_raw_exceptions down
+        $COMPOSE down --remove-orphans
+        printf '\n%sAMBIENTE TERMINADO%s\n' "$C_GRN" "$C_OFF"
+        exit 0
+        ;;
+    "") ;;
+    *)  fail "argumento desconhecido: $1 (uso: [--down] [--host-raw up|down])"; exit 1 ;;
 esac
 
 trap cleanup EXIT
@@ -352,17 +356,9 @@ else
     printf '\n%sSMOKE TEST: FALHA%s  (logs em ./logs, pcaps em ./pcaps)\n' "$C_RED" "$C_OFF"
 fi
 
-if [ "$TEARDOWN" = "1" ]; then
-    info "a terminar o ambiente (--down)"
-    trap - EXIT
-    stop_captures; kill_apps
-    host_raw_exceptions down
-    $COMPOSE down --remove-orphans
-else
-    info "ambiente de pé: ver logs com  docker compose logs -f ecu1"
-    info "terminar com:    ./scripts/smoke_test.sh --down"
-    info "as excecoes do raw PREROUTING do host so saem no --down; se o ambiente"
-    info "for terminado a mao, correr: ./scripts/smoke_test.sh --host-raw down"
-fi
+info "ambiente de pé: ver logs com  docker compose logs -f ecu1"
+info "terminar com:    ./scripts/smoke_test.sh --down"
+info "as excecoes do raw PREROUTING do host so saem no --down; se o ambiente"
+info "for terminado a mao, correr: ./scripts/smoke_test.sh --host-raw down"
 
 exit "$overall"
