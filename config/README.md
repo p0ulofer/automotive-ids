@@ -92,3 +92,9 @@ estado em `.state/host_raw_exceptions.json` e limpa tudo no `--down`.
 alternativa `net.bridge.bridge-nf-call-iptables=0` foi descartada por desligar
 o netfilter do host para todo o tráfego inter-container, em vez de apenas para
 estas duas sub-redes.
+
+O nome da bridge vem do ID da rede e muda a cada recriação, por isso o
+`smoke_test.sh` remove as regras **antes** do `docker compose down` e varre
+sempre todas as `ACCEPT` dos nossos IPs (independente da bridge) antes de
+inserir as atuais — ver "Proteção contra regras órfãs" em
+[`../README.md`](../README.md).

@@ -93,17 +93,35 @@ bridge_of_container() {
     printf 'br-%.12s' "$id"
 }
 
+# Remove TODAS as regras ACCEPT do raw PREROUTING com -d <ip>/32, seja qual
+# for o nome da bridge (`-i`). E necessario porque o nome da bridge vem do ID
+# da rede: se a rede for recriada, a regra antiga ja nem referencia uma
+# interface existente e o `down` (que apaga o estado) deixa-a orfa.
+# Devolve o numero de regras removidas.
+host_raw_flush_ip() {
+    local ip="$1" rule n=0
+    while IFS= read -r rule; do
+        [ -n "$rule" ] || continue
+        rule="${rule/-A PREROUTING/-D PREROUTING}"
+        if host_ipt "iptables -t raw $rule" >/dev/null; then
+            n=$((n + 1))
+        fi
+    done < <(host_ipt "iptables -t raw -S PREROUTING" \
+                 | grep -F -- "-d $ip/32" | grep -F -- "-j ACCEPT" || true)
+    printf '%s' "$n"
+}
+
 # host_raw_exceptions up   -> aplica as regras e grava o estado (overwrite)
 # host_raw_exceptions down -> remove as regras do estado e apaga o estado
 host_raw_exceptions() {
-    local mode="${1:-}" entry ip probe br ts line
+    local mode="${1:-}" entry ip probe br ts line n_res n_res_total
     local n_ok=0 n_dup=0 n_err=0 n_del=0 n_warn=0
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     case "$mode" in
         up)
             mkdir -p "$STATE_DIR"
-            local json=""
+            local json="" n_res_total=0
             for entry in "${RAW_EXCEPTIONS[@]}"; do
                 ip=${entry%% *}
                 probe=${entry##* }
@@ -111,6 +129,10 @@ host_raw_exceptions() {
                     fail "nao foi possivel determinar a bridge da rede do $probe (IP $ip)"
                     return 1
                 }
+                # Limpa residuos destes mesmos IPs (bridge antiga, regra duplicada,
+                # nome de interface que ja nem existe) antes de inserir a actual.
+                n_res=$(host_raw_flush_ip "$ip")
+                n_res_total=$((n_res_total + n_res))
                 if host_ipt "iptables -t raw -C PREROUTING -d $ip/32 ! -i $br -j ACCEPT" >/dev/null; then
                     n_dup=$((n_dup + 1))
                 elif host_ipt "iptables -t raw -I PREROUTING 1 -d $ip/32 ! -i $br -j ACCEPT" >/dev/null; then
@@ -122,28 +144,41 @@ host_raw_exceptions() {
                 json="${json}${json:+, }{\"ip\":\"$ip\",\"bridge\":\"$br\",\"timestamp\":\"$ts\"}"
             done
             printf '[%s]\n' "$json" > "$STATE_FILE"
-            info "raw PREROUTING do host: $n_ok inserida(s), $n_dup ja existia(m), $n_err erro(s)"
+            info "raw PREROUTING do host: $n_res_total residua(is) removida(s), $n_ok inserida(s), $n_dup ja existia(m), $n_err erro(s)"
             info "estado em $STATE_FILE"
             [ "$n_err" -eq 0 ]
             ;;
         down)
-            if [ ! -f "$STATE_FILE" ]; then
-                info "sem estado em $STATE_FILE -- nada a remover do raw PREROUTING"
-                return 0
+            n_res_total=0
+            if [ -f "$STATE_FILE" ]; then
+                while IFS= read -r line; do
+                    ip=$(printf '%s' "$line" | sed -n 's/.*"ip":[[:space:]]*"\([^"]*\)".*/\1/p')
+                    br=$(printf '%s' "$line" | sed -n 's/.*"bridge":[[:space:]]*"\([^"]*\)".*/\1/p')
+                    [ -n "$ip" ] && [ -n "$br" ] || continue
+                    if host_ipt "iptables -t raw -D PREROUTING -d $ip/32 ! -i $br -j ACCEPT" >/dev/null; then
+                        n_del=$((n_del + 1))
+                    else
+                        warn "remocao de '-d $ip/32 ! -i $br -j ACCEPT' falhou (regra inexistente ou rede recriada)"
+                        n_warn=$((n_warn + 1))
+                    fi
+                done < <(grep -o '{[^}]*}' "$STATE_FILE" || true)
+                rm -f "$STATE_FILE"
+                info "raw PREROUTING do host: $n_del removida(s), $n_warn aviso(s)"
+            else
+                info "sem estado em $STATE_FILE"
             fi
-            while IFS= read -r line; do
-                ip=$(printf '%s' "$line" | sed -n 's/.*"ip":[[:space:]]*"\([^"]*\)".*/\1/p')
-                br=$(printf '%s' "$line" | sed -n 's/.*"bridge":[[:space:]]*"\([^"]*\)".*/\1/p')
-                [ -n "$ip" ] && [ -n "$br" ] || continue
-                if host_ipt "iptables -t raw -D PREROUTING -d $ip/32 ! -i $br -j ACCEPT" >/dev/null; then
-                    n_del=$((n_del + 1))
-                else
-                    warn "remocao de '-d $ip/32 ! -i $br -j ACCEPT' falhou (regra inexistente ou rede recriada)"
-                    n_warn=$((n_warn + 1))
-                fi
-            done < <(grep -o '{[^}]*}' "$STATE_FILE" || true)
-            rm -f "$STATE_FILE"
-            info "raw PREROUTING do host: $n_del removida(s), $n_warn aviso(s)"
+            # Residuos: regras dos mesmos IPs que o estado ja nao conhece -- rede
+            # recriada com outro ID de bridge, estado perdido, execucao anterior
+            # interrompida. Sem isto ficam orfas para sempre no host.
+            n_res_total=0
+            for entry in "${RAW_EXCEPTIONS[@]}"; do
+                ip=${entry%% *}
+                n_res=$(host_raw_flush_ip "$ip")
+                n_res_total=$((n_res_total + n_res))
+            done
+            if [ "$n_res_total" -gt 0 ]; then
+                info "raw PREROUTING do host: $n_res_total residua(is) removida(s)"
+            fi
             return 0
             ;;
         *)
@@ -171,8 +206,9 @@ cleanup() {
     if [ "$TEARDOWN" = "1" ]; then
         # --down: o ambiente e desfeito, portanto as regras do host tambem.
         # Vale tambem se o script morrer a meio (die/trap) -- nunca ficam orfas.
+        # Regras ANTES de derrubar as redes (mesma ordem do passo 2).
+        host_raw_exceptions down || true
         $COMPOSE down --remove-orphans >/dev/null 2>&1 || true
-        host_raw_exceptions down >/dev/null 2>&1 || true
     elif [ "$rc" -ne 0 ] && [ -f "$STATE_FILE" ]; then
         # Ambiente ficou de pé (e as regras sao necessarias enquanto ele existir).
         warn "o ambiente ficou de pé com as excecoes do host em $STATE_FILE"
@@ -199,6 +235,11 @@ info "pcaps/ = capturas tcpdump    logs/ = aplicacoes + verificacao"
 
 # -----------------------------------------------------------------------------
 step "2/8  Levantar o ambiente (build da imagem + 5 ECUs)"
+# ANTES de derrubar as redes: as regras do raw referem o nome da bridge actual.
+# `docker compose down` apaga as redes (e as DROP do Docker) mas NAO as nossas
+# ACCEPT; se o `up` seguinte recriar a rede com outro ID de bridge, o state e
+# reescrito e as regras antigas ficam orfas para sempre.
+host_raw_exceptions down || true
 $COMPOSE down --remove-orphans >/dev/null 2>&1 || true
 if ! $COMPOSE up -d --build; then
     die "docker compose up falhou"
@@ -315,8 +356,8 @@ if [ "$TEARDOWN" = "1" ]; then
     info "a terminar o ambiente (--down)"
     trap - EXIT
     stop_captures; kill_apps
-    $COMPOSE down --remove-orphans
     host_raw_exceptions down
+    $COMPOSE down --remove-orphans
 else
     info "ambiente de pé: ver logs com  docker compose logs -f ecu1"
     info "terminar com:    ./scripts/smoke_test.sh --down"

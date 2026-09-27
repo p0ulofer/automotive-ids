@@ -118,9 +118,24 @@ Os pares exatos desta topologia (os únicos destinos cruzados entre sub-redes):
 * As regras vivem no **netns do WSL** (o `dockerd` corre dentro da distro —
   nada é alterado no Windows) enquanto o ambiente existir.
 * São aplicadas automaticamente no `up` e **removidas automaticamente no
-  `--down`**.
+  `--down`**, sempre **antes** de `docker compose down`.
 * O estado (IP, bridge, timestamp) fica em `.state/host_raw_exceptions.json`
   e é reescrito de cada vez que o `up` corre.
+
+**Proteção contra regras órfãs.** O nome da bridge vem do ID da rede
+(`br-<12 chars do id>`), que **muda sempre que a rede é recriada**. Como o
+`docker compose down` apaga as DROP do Docker mas não as nossas ACCEPT, e como
+o ficheiro de estado é reescrito no `up` seguinte, era possível deixar regras
+com bridges antigas presas no host. Duas defesas:
+
+1. o `down` corre **antes** do `docker compose down` no início de cada execução;
+2. tanto o `up` como o `down` varrem todas as regras `ACCEPT` com
+   `-d <IP>/32` dos nossos IPs, **independente do nome da bridge**
+   (`host_raw_flush_ip`), antes de inserir as atuais.
+
+Resultado verificado: duas execuções seguidas de `./scripts/smoke_test.sh`
+terminam ambas com exatamente **2 `ACCEPT` + 6 `DROP`** no `raw PREROUTING`.
+
 * Se o script for interrompido de forma anormal, o ambiente fica de pé (e com
   ele as regras — sem elas o lab não funciona). Para as remover à mão:
 
@@ -129,8 +144,9 @@ Os pares exatos desta topologia (os únicos destinos cruzados entre sub-redes):
   ./scripts/smoke_test.sh --host-raw up       # volta a aplicá-las (idempotente)
   ```
 
-  Isto é também o que se deve fazer se o ambiente for terminado com
-  `docker compose down` à mão, para não deixar regras órfãs no host.
+  O `--host-raw down` limpa também regras residuais cujo estado se tenha
+  perdido, pelo que serve de remediação mesmo depois de um `docker compose
+  down` feito à mão.
 
 ### Alternativa descartada: `net.bridge.bridge-nf-call-iptables=0`
 
