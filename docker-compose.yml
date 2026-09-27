@@ -1,0 +1,119 @@
+# =============================================================================
+# someip-ids -- reproducao local de
+#   "SOME/IP Intrusion Detection System Using Real-Time and Retroactive
+#    Anomaly Detection" (Koyama et al., IEEE VTC2022-Spring)
+#
+# Topologia (5 ECUs Linux + vsomeip, tudo UDP):
+#
+#   ecu1 (192.168.1.2)
+#     |
+#   net1 192.168.1.0/24
+#     |
+#   ecu2 (192.168.1.1 + 192.168.2.1)  <- roteador (+ relay SOME/IP-SD)
+#     |
+#   net2 192.168.2.0/24
+#     |-- ecu3 (192.168.2.2)  <- roteador (caminho de volta)
+#     |-- ecu4 (192.168.2.3)
+#     +-- ecu5 (192.168.2.4)  <- servidor SOME/IP
+#
+# As duas redes sao duas bridges Docker distintas (dois dominios broadcast),
+# pelo que o encaminhamento L3 entre elas faz-se, de facto, nos ecu2/ecu3.
+# =============================================================================
+
+name: someip-ids
+
+networks:
+  net1:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+          gateway: 192.168.1.254
+  net2:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.2.0/24
+          gateway: 192.168.2.254
+
+# Tudo o que e comum aos 5 ECUs (build unica, mesmas imagens/limites/volumes).
+x-ecu: &ecu
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: automotive-ids/vsomeip:latest
+  # NET_ADMIN: adicao de rotas, iptables (TTL do SOME/IP-SD) e smcroute.
+  # NET_RAW ja vem por omissao no Docker (tcpdump, IGMP do smcroute).
+  cap_add:
+    - NET_ADMIN
+  sysctls:
+    net.ipv4.ip_forward: "1"
+  volumes:
+    - ./config:/etc/ids:ro
+    - ./pcaps:/pcaps
+    - ./logs:/logs
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ---------------------------------------------------------------- ecu1 ----
+  ecu1:
+    <<: *ecu
+    container_name: ecu1
+    environment:
+      ECU: ecu1
+      START_VSOMEIPD: "1"
+      VSOMEIP_CONFIGURATION: /etc/ids/ecu1/ids.json
+    networks:
+      net1:
+        ipv4_address: 192.168.1.2
+
+  # ---------------------------------------------------------------- ecu2 ----
+  # Roteador entre as sub-redes + relay do multicast SOME/IP-SD.
+  ecu2:
+    <<: *ecu
+    container_name: ecu2
+    environment:
+      ECU: ecu2
+    networks:
+      net1:
+        ipv4_address: 192.168.1.1
+      net2:
+        ipv4_address: 192.168.2.1
+
+  # ---------------------------------------------------------------- ecu3 ----
+  # Segundo roteador: encaminha o caminho de volta ecu5 -> ecu1.
+  ecu3:
+    <<: *ecu
+    container_name: ecu3
+    environment:
+      ECU: ecu3
+    networks:
+      net2:
+        ipv4_address: 192.168.2.2
+
+  # ---------------------------------------------------------------- ecu4 ----
+  ecu4:
+    <<: *ecu
+    container_name: ecu4
+    environment:
+      ECU: ecu4
+    networks:
+      net2:
+        ipv4_address: 192.168.2.3
+
+  # ---------------------------------------------------------------- ecu5 ----
+  # Servidor SOME/IP (Request/Response + Notification Events).
+  ecu5:
+    <<: *ecu
+    container_name: ecu5
+    environment:
+      ECU: ecu5
+      START_VSOMEIPD: "1"
+      VSOMEIP_CONFIGURATION: /etc/ids/ecu5/ids.json
+    networks:
+      net2:
+        ipv4_address: 192.168.2.4
