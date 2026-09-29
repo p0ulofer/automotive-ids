@@ -1,0 +1,42 @@
+# =============================================================================
+# config/datasets/normal_nepc.yaml -- Dataset Normal_NEpc (~255.128 pacotes)
+# =============================================================================
+# Apos publish/subscribe, o servidor envia Notification Events periodicamente
+# OU quando o valor muda.
+# Inclui Request/Response com o MESMO Service ID e Method IDs diferentes;
+# o estado do servidor muda conforme o conteudo dos requests.
+# Dependendo desse estado, certos bit ranges do payload do evento mudam de
+# faixa de valores e de padrao de variacao.
+# Roda em paralelo com o trafego Normal_RR.
+
+dataset: normal_nepc
+service_id: "0x1235"
+instance_id: "0x0001"
+request_method: "0x0002"
+response_method: "0x0002"
+event_id: "0x8001"
+eventgroup_id: "0x0001"
+
+request_cycle_ms: 20
+notify_cycle_ms: 10
+p_ng: 0.02
+timeout_s: 120
+num_events: 200
+# Estimativa full run: ~200 pkt/s (notif 100/s + RR 100/s + setmode + SD)
+# -> ~1280s para 255128
+duration_s: 1280
+setmode_every_cycles: 50     # SetMode a cada 50 ciclos (1s a 20ms) cobre modos A-D
+
+# Periodico OU on-change: o servidor alterna.
+# O estado drive_mode (A/B/C/D) altera faixa de speed e padrao de steering
+# (pelo menos dois bit ranges), conforme docs/payload_model.md.
+
+client_ecu: ecu1
+server_ecu: ecu5
+sd_port: 30490
+service_a_port: 30509
+service_b_port: 30510
+multicast_group: 224.224.224.245
+concurrent_sessions: 1
+seed: 42
+target_packets: 255128

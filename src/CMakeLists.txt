@@ -22,4 +22,20 @@ target_link_libraries(ids_client PRIVATE
     Boost::system
     Threads::Threads)
 
-install(TARGETS ids_server ids_client RUNTIME DESTINATION bin)
+# --- Fase 2: apps parametrizados para geracao de datasets normais ------------
+add_executable(ids_dataset_server ids_dataset_server.cpp)
+target_link_libraries(ids_dataset_server PRIVATE
+    ${VSOMEIP_LIBRARIES}
+    Boost::filesystem
+    Boost::system
+    Threads::Threads)
+
+add_executable(ids_dataset_client ids_dataset_client.cpp)
+target_link_libraries(ids_dataset_client PRIVATE
+    ${VSOMEIP_LIBRARIES}
+    Boost::filesystem
+    Boost::system
+    Threads::Threads)
+
+install(TARGETS ids_server ids_client ids_dataset_server ids_dataset_client
+        RUNTIME DESTINATION bin)

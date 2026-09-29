@@ -1,0 +1,39 @@
+# =============================================================================
+# config/datasets/normal_nec.yaml -- Dataset Normal_NEc (~1.722.011 pacotes)
+# =============================================================================
+# Igual ao Normal_NEpc, mas o servidor SO envia Notification Events QUANDO O
+# VALOR MUDA (sem periodo fixo), e com Service ID diferente do Normal_NEpc.
+# Mesmos enderecos de origem/destino do Normal_NEpc.
+# Roda em paralelo com Normal_RR e Normal_NEpc.
+
+dataset: normal_nec
+service_id: "0x1236"
+instance_id: "0x0001"
+request_method: "0x0003"
+response_method: "0x0003"
+event_id: "0x8001"
+eventgroup_id: "0x0001"
+
+# So on-change: nao ha periodo de notificacao fixo.
+# O volume (~1.7M) vem do alto numero de mudancas reais de valor:
+# modo muda a cada K notificacoes e sinais variam dentro do modo.
+request_cycle_ms: 50
+observe_period_ms: 50
+notify_cycle_ms: 10
+p_ng: 0.01
+timeout_s: 300
+num_events: 500
+# Estimativa full run: ~243 pkt/s (NEc on-change ~100/s + NEpc 100/s +
+# RR 40/s + setmode + SD) -> ~7100s (~2h) para 1.722.011
+duration_s: 7100
+setmode_every_cycles: 100
+
+client_ecu: ecu1
+server_ecu: ecu5
+sd_port: 30490
+service_a_port: 30509
+service_b_port: 30510
+multicast_group: 224.224.224.245
+concurrent_sessions: 1
+seed: 42
+target_packets: 1722011

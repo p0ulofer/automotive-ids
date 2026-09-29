@@ -1,0 +1,17 @@
+# =============================================================================
+# docker-compose.datasets.yml -- override para geracao de datasets (Fase 2)
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.datasets.yml up -d
+#
+# Muda apenas VSOMEIP_CONFIGURATION do ecu1/ecu5 para os configs de dataset
+# (3 servicos: 0x1234/0x1235/0x1236). Nao altera topologia, redes, nem regras
+# raw PREROUTING do host (Fase 1 intacta).
+# =============================================================================
+services:
+  ecu1:
+    environment:
+      VSOMEIP_CONFIGURATION: /etc/ids/ecu1/ids_dataset.json
+  ecu5:
+    environment:
+      VSOMEIP_CONFIGURATION: /etc/ids/ecu5/ids_dataset.json

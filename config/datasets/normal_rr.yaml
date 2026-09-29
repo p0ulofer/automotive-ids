@@ -1,0 +1,34 @@
+# =============================================================================
+# config/datasets/normal_rr.yaml -- Dataset Normal_RR (~6.455 pacotes)
+# =============================================================================
+# Duas ECUs estabelecem publish/subscribe via SOME/IP-SD e depois fazem
+# Request/Response via SOME/IP.
+# A resposta e OK ou NG (return code de erro no header SOME/IP).
+# O EventGroup assinado NAO contem evento periodico nem evento dependente de
+# mudanca de estado (assinatura existe, mas quase nao gera notificacoes).
+
+dataset: normal_rr
+service_id: "0x1234"
+instance_id: "0x0001"
+request_method: "0x0001"
+response_method: "0x0001"
+event_id: "0x8001"
+eventgroup_id: "0x0001"
+
+request_cycle_ms: 100        # periodo realista (10-100ms); Fase 1 usou 500ms so para teste
+notify_cycle_ms: 500
+p_ng: 0.05                   # 5% das respostas NG (artigo: resposta e OK ou NG)
+timeout_s: 60
+num_events: 3
+# Estimativa full run: ~21 pkt/s (2 req+resp / 100ms + SD) -> ~310s para 6455
+duration_s: 310
+
+client_ecu: ecu1
+server_ecu: ecu5
+sd_port: 30490
+service_a_port: 30509
+service_b_port: 30510
+multicast_group: 224.224.224.245
+concurrent_sessions: 1
+seed: 42
+target_packets: 6455

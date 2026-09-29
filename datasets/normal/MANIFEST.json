@@ -1,0 +1,122 @@
+{
+  "normal_rr": {
+    "file": "normal_rr.pcap",
+    "total_packets": 6656,
+    "target_packets": 6455,
+    "scale": 1.0,
+    "target_effective": 6455,
+    "diff_pct": 3.11,
+    "in_tolerance_10pct": true,
+    "sd_packets": 477,
+    "non_sd_packets": 6180,
+    "responses": 3085,
+    "ng_responses": 152,
+    "ng_pct": 4.93,
+    "by_service_id": {
+      "0x1234": 6180,
+      "0xFFFF": 477
+    },
+    "by_message_type": {
+      "0x00": 3085,
+      "0x02": 487,
+      "0x80": 3085
+    },
+    "duration_s": 309.989,
+    "rate_pkt_s": 21.5,
+    "session_id_breaks": 0,
+    "session_id_break_rate": 0.0,
+    "session_id_breaks_by_msgtype": {
+      "0x00": 0,
+      "0x02": 0,
+      "0x80": 0
+    },
+    "session_id_missing": 0,
+    "session_id_loss_rate": 0.0,
+    "session_id_breaks_sd": 0,
+    "session_id_wraparounds": 0,
+    "truncated_packets": 0,
+    "duplicate_packets": 0,
+    "duplicates_removed": 26794
+  },
+  "normal_nepc": {
+    "file": "normal_nepc.pcap",
+    "total_packets": 255084,
+    "target_packets": 255128,
+    "scale": 1.0,
+    "target_effective": 255128,
+    "diff_pct": 0.02,
+    "in_tolerance_10pct": true,
+    "sd_packets": 1938,
+    "non_sd_packets": 253893,
+    "responses": 64486,
+    "ng_responses": 1293,
+    "ng_pct": 2.01,
+    "by_service_id": {
+      "0x1234": 126485,
+      "0x1235": 127408,
+      "0xFFFF": 1938
+    },
+    "by_message_type": {
+      "0x00": 64486,
+      "0x02": 126859,
+      "0x80": 64486
+    },
+    "duration_s": 1279.981,
+    "rate_pkt_s": 199.3,
+    "session_id_breaks": 1047,
+    "session_id_break_rate": 0.0041,
+    "session_id_breaks_by_msgtype": {
+      "0x00": 0,
+      "0x02": 12,
+      "0x80": 1035
+    },
+    "session_id_missing": 0,
+    "session_id_loss_rate": 0.0,
+    "session_id_breaks_sd": 0,
+    "session_id_wraparounds": 1,
+    "truncated_packets": 0,
+    "duplicate_packets": 0,
+    "duplicates_removed": 1145158
+  },
+  "normal_nec": {
+    "file": "normal_nec.pcap",
+    "total_packets": 1653598,
+    "target_packets": 1722011,
+    "scale": 1.0,
+    "target_effective": 1722011,
+    "diff_pct": 3.97,
+    "in_tolerance_10pct": true,
+    "sd_packets": 10667,
+    "non_sd_packets": 1644564,
+    "responses": 143561,
+    "ng_responses": 1426,
+    "ng_pct": 0.99,
+    "by_service_id": {
+      "0x1234": 281720,
+      "0x1235": 681422,
+      "0x1236": 681422,
+      "0xFFFF": 10667
+    },
+    "by_message_type": {
+      "0x00": 143561,
+      "0x02": 1368109,
+      "0x80": 143561
+    },
+    "duration_s": 7099.991,
+    "rate_pkt_s": 232.9,
+    "session_id_breaks": 3040,
+    "session_id_break_rate": 0.0018,
+    "session_id_breaks_by_msgtype": {
+      "0x00": 0,
+      "0x02": 666,
+      "0x80": 2374
+    },
+    "session_id_missing": 1,
+    "session_id_loss_rate": 0.0,
+    "session_id_breaks_sd": 0,
+    "session_id_wraparounds": 23,
+    "truncated_packets": 0,
+    "duplicate_packets": 0,
+    "duplicates_removed": 7973753
+  }
+}
