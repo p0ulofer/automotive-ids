@@ -172,6 +172,17 @@ Suporta `--scale 0.05` para runs reduzidos (alvo efetivo = alvo × escala).
 O relatório separa **reordenação** de **perda real** e reporta breaks por
 message type (REQUEST/RESPONSE/NOTIFICATION).
 
+**Escopo do gate (decisão registrada — item 1):** o limite de 1,14 % é
+aplicado sobre a taxa **agregada** (todas as mensagens de dados somadas),
+de propósito — a base 0,639 % do NEpc reduced também era agregada. A taxa
+só em RESPOSTAS é estruturalmente mais alta em todos os runs (2,42 %
+reduced; 1,605 % NEpc full; 1,654 % NEc full) por causa da reordenação
+cross-service (endpoints UDP por serviço — benigna: 0 requisições
+perdidas/reordenadas em todos os runs). Por isso **não existe hoje gate
+separado por tipo para RESPONSE**: calibrar um limiar por-tipo exigiria a
+taxa de resposta observada como base e mudaria a semântica do gate. Evidência
+e raciocínio completos: `relatorio_fase2.md` §4 e §8.
+
 ### 2.5 Resultados
 
 **Runs reduzidos (`--scale 0.05`)** — validação do método:
@@ -192,7 +203,7 @@ message type (REQUEST/RESPONSE/NOTIFICATION).
 | total / alvo | 6 656 / 6 455 (**+3.1 %**) | **255 084 / 255 128 (0.02 %)** | **1 653 598 / 1 722 011 (−4.0 %)** |
 | breaks (rate) | 0 (0.000 %) | 1 047 (0.412 %) | 3 040 (0.185 %) |
 | breakdown | 0/0/0 | resp 1.605 %, notif 0.010 %, req **0** | resp 1.654 %, notif 0.049 %, req **0** |
-| perda real | 0 | 0 | **1 sessão** (0.00006 % — 1 pacote em 1.64 M) |
+| perda real | 0 | 0 | **0** (`session_id_missing=1` = falso positivo do `0x0000` reservado — ver 2.7) |
 | truncados / dups | 0 / 0 | 0 / 0 | 0 / 0 |
 | NG vs p_ng | 4.9 % (0.05) | 2.0 % (0.02) | 1.0 % (0.01) |
 | dups removidas | 26 794 | 1 145 158 | 7 973 753 |
@@ -210,6 +221,25 @@ message type (REQUEST/RESPONSE/NOTIFICATION).
   → passou a usar a flag; verificado em campo no run reduced (70 SetMode NEc
   e 70 NEpc = 1/5 s cada)
 - build verificado com `g++ -std=c++20 -Wall -Wextra` na imagem: **0 warnings**
+
+### 2.7 Verificações pós-entrega (itens 1–4 — checagens read-only)
+
+- **Item 1:** escopo do gate agregado documentado (§2.4 acima e
+  `relatorio_fase2.md` §4).
+- **Item 2 — desvios de volume:** RR **+3,1 %** = volume de SD com
+  renovações (316 dos 477 SD, renovação ~1,96 s com TTL 3 s; req/resp
+  ficaram −30 por startup 0,62 s + timer +0,27 ms/ciclo); NEc **−4,0 %** =
+  95,5 % de deriva determinística do `cv_.wait_for` (+0,45 ms/chamada →
+  notificação 10,450 ms vs 10 000), 2,4 % de mensagens concatenadas,
+  2,1 % de composição do alvo do artigo (não verificável). Ambos dentro de
+  ±10 %; detalhe e tabela em `relatorio_fase2.md` §8.1.
+- **Item 3 — a "1 sessão perdida" do NEc:** os logs do tcpdump **existem**
+  (`logs/ds/*.pcap.log`) e mostram **0 dropped by kernel** nas 6 interfaces
+  → captura regra-se; o `missing=1` é falso positivo do `0x0000` reservado
+  no wrap com reordenação → **perda real = 0** (`relatorio_fase2.md` §8.2).
+- **Item 4 — smoke test pós-Fase 2:** `./scripts/smoke_test.sh` →
+  **C1..C5 PASS**, `ids_client` exit 0, `SMOKE TEST: SUCESSO` — a Fase 2 não
+  quebrou a Fase 1 (`relatorio_fase2.md` §8.3).
 
 ---
 
@@ -249,19 +279,21 @@ nossa pipeline em modo baseline; ataques (label 1) só injetados em bancada.
 - [x] Fase 2 itens 1–5 (warnings, ecu3, gate, docs+fix NEC, NEc reduced)
 - [x] `normal_rr` full — **PASS** (6 656 / 6 455, +3.1 %)
 - [x] `normal_nepc` full — **PASS** (255 084 / 255 128, 0.02 %)
-- [x] `normal_nec` full — **PASS** (1 653 598 / 1 722 011, −4.0 %; perda 1/1.64 M)
-- [ ] Commit da Fase 2 no git (material todo untracked — à espera de confirmação)
+- [x] `normal_nec` full — **PASS** (1 653 598 / 1 722 011, −4.0 %; perda 0 —
+      `missing=1` é falso positivo do `0x0000`, ver 2.7)
+- [x] Verificações pós-entrega (itens 1–4): gate agregado documentado,
+      desvios explicados, perda NEc = 0, smoke C1..C5 PASS (exit 0)
+- [x] Commit da Fase 2 (`e633f9f`) + rename `docs/documentacao.md`
+      (`e689dc7`) — pushados para `origin/main`
 - [ ] Fase 3 — features + IDS sobre os três datasets
 
 ### Estado do git
 
-- **Fase 1:** commitada (3 commits).
-- **Fase 2:** todo o material ainda **não commitado** (`git status`):
-  `src/ids_dataset_{client,server}.cpp`, `tools/{merge_captures,pcap_to_csv,validate_dataset}.py`,
-  `scripts/gen_dataset.sh`, `config/datasets/`, `docker-compose.datasets.yml`,
-  `docs/`, `datasets/`, mais `src/CMakeLists.txt` modificado.
-  → sugerido depois do NEC full validar: `git add` + commit (não feito ainda,
-  à espera de confirmação).
+- **Fase 1:** commitada (3 commits, pushados).
+- **Fase 2:** commitada (`e633f9f` — apps de dataset, tools, configs,
+  docs) + `e689dc7` (rename para `docs/documentacao.md`) — ambos pushados.
+- **Working tree:** limpa; datasets `.pcap`/`.csv` ficam de fora do git
+  (`.gitignore`), `MANIFEST.json` versionado.
 
 ### Comandos
 
