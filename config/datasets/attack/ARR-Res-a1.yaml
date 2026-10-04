@@ -1,0 +1,21 @@
+# =============================================================================
+# config/datasets/attack/ARR-Res-a1.yaml -- Response (a) MITM (Fig. 3a)
+# =============================================================================
+# Atacante em MITM (poison ARP + relay) media tambem as responses: a resposta
+# real do servidor e' interceptada e re-emitida pelo atacante (src MAC do
+# atacante -> label=1) com payload copiado (fab-style knows, wiretap assumido,
+# Sec. IV-A). O pedido continua a ser relayado transparentemente (label=0).
+#
+# Alvo (Tabela III / interpretacao (A)): 773 anomalia / 3291 total = 23.5%.
+# Derivacao (medicoes reduced: 9.708 req/s, SD=30 uma vez):
+#   total = 2N + 30 = 3291 -> N = 1630 -> D = 1630/9.708 ~= 168s
+#   anomalia = t*N = 773   -> t = 773/1631 ~= 0.47
+# Projecao: total +0.6%, anomalia -0.3%, razao -0.7%.
+
+dataset: ARR-Res-a1
+base: normal_rr
+variant: "Response (a) MITM - terminate-responses + fab_resp_server"
+seed: 42
+duration_s: 169
+attacker_args: >-
+  --terminate-responses 0.47 --fab-style knows

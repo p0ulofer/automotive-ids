@@ -10,14 +10,16 @@
 # Medidas (5.5s, sem duplicados): notifs 160/s (80 NEpc + 80 NEc), ECHO 33/s,
 # SD 24 (burst), total ~198/s:
 #   ratio = t*160/199 = 0.43 -> t=0.53
-#   duration = 5385/198 ~= 27s
-# Reduced: --scale 0.25 (6.75s -> ~1335 pkt vs alvo 1346).
+# Reduced (scale 0.25 -> 6s): validado; taxa REAL medida 218.5 pkt/s
+# (nao 198) -> D=27s daria total +10.05% (FALHA). D corrigida:
+#   total = 218.5*D + 30 = 5385 -> D ~= 24.5 -> 25s
+# Projecao a 25s: total +1.9%, anomalia +2.9%, razao +1.0%.
 
 dataset: ANEc-a1
 base: normal_nec
 variant: "NE(dagger) (a) MITM - tamper-notify 53% (violating, mixed signal)"
 seed: 42
-duration_s: 27
+duration_s: 25
 attacker_args: >-
   --tamper-notify 0.53
   --tamper-kind violating --tamper-signal mixed

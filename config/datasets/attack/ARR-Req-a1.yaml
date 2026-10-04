@@ -7,16 +7,19 @@
 # (wiretap assumido, Sec. IV-A). O servidor real so ve os requests injetados.
 #
 # Alvo (Tabela III / interpretacao (A)): 772 anomalia / 3291 total = 23.5%.
-# Calibracao: N~126 req/13s (cycle 100ms); anomalia = 2*t*N (inject+fab),
-# total = N(2+t)+SD.
-# Obs: t=0.30 -> terminate=46 (seed42) -> anomalia 92 (+19.5% do alvo 77).
-# t=0.25 -> terminate~38 -> anomalia ~75, total ~322, ratio ~23%.
+# Calibracao escala completa (N = 9.708 req/s x D, SD=30 uma vez):
+#   total = N(2+t)+30 = 3291 e anomalia = 2tN = 772 -> N=1437, D=148s, t=0.269.
+# Mantem-se t=0.25 (validado no reduced): projecao -6.9% / -0.2% / -6.7%
+# (todos os gates dentro de +/-10%). Fallback se a cauda do RNG falhar:
+# subir t para 0.27 e re-correr.
+# NOTA: o reduced (N=126) teve t_efetivo=0.30 (sorte do RNG, +1.6 sigma) --
+# por isso a duration antiga (135s) daria anomalia -15% a escala 1.
 
 dataset: ARR-Req-a1
 base: normal_rr
 variant: "Request (a) MITM - terminate + inject + fab_resp_client"
 seed: 42
-duration_s: 135
+duration_s: 148
 # args extras do tools/attacker/attacker.py (poison/duration/seed/stats
 # sao acrescentados pelo gerador)
 attacker_args: >-
