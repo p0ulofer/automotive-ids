@@ -33,6 +33,16 @@ raw_counts() {
         2>/dev/null || echo "? ?"
 }
 
+# regressao raw: 2 ACCEPT (smoke_test) + DROP anti-spoof por host com IP
+# statico configurado (6 ECUs; +1 se o ecu6/atacante estiver up)
+expected_raw() {
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'ecu6'; then
+        echo "2 7"
+    else
+        echo "2 6"
+    fi
+}
+
 # --- argumentos --------------------------------------------------------------
 SCALE=1.0
 DATASET=""
@@ -81,7 +91,8 @@ esac
 if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^ecu1$'; then
     RAW=$(raw_counts)
     warn "regressao ANTES: ACCEPT/DROP = $RAW"
-    [[ "$RAW" == "2 6" ]] || warn "AVISO: esperado 2/6 antes do run"
+    EXP=$(expected_raw)
+    [[ "$RAW" == "$EXP" ]] || warn "AVISO: esperado $EXP antes do run"
 else
     warn "ambiente em baixo; vamos subir"
 fi
@@ -96,7 +107,8 @@ sleep 12
     || die "falha ao aplicar excecoes raw"
 
 RAW=$(raw_counts)
-[[ "$RAW" == "2 6" ]] || die "regressao DEPOIS do up: esperado 2/6, obtido: $RAW"
+EXP=$(expected_raw)
+[[ "$RAW" == "$EXP" ]] || die "regressao DEPOIS do up: esperado $EXP, obtido: $RAW"
 warn "regressao DEPOIS do up: $RAW OK"
 
 # --- 3. capturas por interface -----------------------------------------------
@@ -163,7 +175,8 @@ warn "capturas paradas"
 
 # --- 5b. regressao DEPOIS ----------------------------------------------------
 RAW=$(raw_counts)
-[[ "$RAW" == "2 6" ]] || die "regressao DEPOIS do run: esperado 2/6, obtido: $RAW"
+EXP=$(expected_raw)
+[[ "$RAW" == "$EXP" ]] || die "regressao DEPOIS do run: esperado $EXP, obtido: $RAW"
 warn "regressao DEPOIS do run: $RAW OK"
 
 # --- 6. merge + dedup --------------------------------------------------------

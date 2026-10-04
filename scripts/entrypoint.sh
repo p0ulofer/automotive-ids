@@ -29,12 +29,20 @@ log() { echo "[entrypoint:${ECU}] $*"; }
 
 # -----------------------------------------------------------------------------
 # 1. sysctls
+#
+# NOTA: /proc/sys e read-only dentro dos containers (default do Docker), pelo
+# que os sysctl daqui falham em silencio (procps devolve 0 na escrita "ignoring:
+# Read-only file system"). Os valores que interessam sao aplicados pelo
+# docker-compose (chave `sysctls:`, escrita pelo daemon a partir do host):
+#   ecu1..ecu5  net.ipv4.ip_forward=1   (roteadores do lab)
+#   ecu6        net.ipv4.ip_forward=0   (relay MITM e' userspace; ver
+#                                        docker-compose.attacker.yml)
 # -----------------------------------------------------------------------------
 sysctl -qw net.ipv4.ip_forward=1 2>/dev/null || log "aviso: nao foi possivel definir ip_forward"
 for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
     [ -w "$f" ] && printf '0\n' > "$f" 2>/dev/null
 done
-log "ip_forward=$(cat /proc/sys/net/ipv4.ip_forward 2>/dev/null || echo '?')"
+log "ip_forward=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo '?')"
 
 # -----------------------------------------------------------------------------
 # 2. rotas estaticas (caminho ecu1 <-> ecu5)
@@ -49,6 +57,12 @@ log "ip_forward=$(cat /proc/sys/net/ipv4.ip_forward 2>/dev/null || echo '?')"
 # -----------------------------------------------------------------------------
 case "$ECU" in
     ecu1)
+        ip route replace 192.168.2.0/24 via 192.168.1.1 2>/dev/null \
+            || log "aviso: falhou a rota 192.168.2.0/24 via 192.168.1.1"
+        ;;
+    ecu6)
+        # atacante (Fase 3): alcancar ecu5/e o resto da net2 pelo roteador
+        # ecu2, tal como o ecu1 (caminho normal de dados e SD unicast).
         ip route replace 192.168.2.0/24 via 192.168.1.1 2>/dev/null \
             || log "aviso: falhou a rota 192.168.2.0/24 via 192.168.1.1"
         ;;

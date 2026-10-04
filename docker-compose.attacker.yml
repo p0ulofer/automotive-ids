@@ -1,0 +1,53 @@
+# =============================================================================
+# docker-compose.attacker.yml -- override Fase 3: ECU atacante (ecu6)
+#
+# Uso (geracao de datasets de ataque):
+#   docker compose -f docker-compose.yml -f docker-compose.attacker.yml up -d
+#
+# O ecu6 e um 6.º host na net1 (192.168.1.50) com:
+#   * NET_ADMIN (ARP spoofing via AF_PACKET/scapy, iptables);
+#   * imagem propria (estagio "attacker" do Dockerfile: base + python3/scapy);
+#   * routingmanagerd com config propria (config/attacker/ids_attacker.json),
+#     aplicacao ids-attacker-client (id 0x1002 -> client ID SOME/IP distinto
+#     do cliente normal ecu1, id 0x1001);
+#   * ip_forward DESLIGADO (o relay MITM e feito em userspace pelo
+#     tools/attacker/attacker.py; ver entrypoint.sh caso ecu6).
+#
+# O ecu4 continua observador; o ecu6 NAO roteador, NAO smcroute.
+# =============================================================================
+x-attacker: &attacker
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: attacker
+  image: automotive-ids/attacker:latest
+  cap_add:
+    - NET_ADMIN
+  # /proc/sys e read-only no container: o daemon escreve os sysctl do host.
+  # ip_forward=0 obrigatorio: o relay MITM e' feito em userspace pelo
+  # tools/attacker/attacker.py; se o kernel encaminhasse, ignoraria a
+  # politica de drop/tamper do atacante.
+  sysctls:
+    net.ipv4.ip_forward: "0"
+  volumes:
+    - ./config:/etc/ids:ro
+    - ./pcaps:/pcaps
+    - ./logs:/logs
+    - ./tools:/tools:ro
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  ecu6:
+    <<: *attacker
+    container_name: ecu6
+    environment:
+      ECU: ecu6
+      START_VSOMEIPD: "1"
+      VSOMEIP_CONFIGURATION: /etc/ids/attacker/ids_attacker.json
+    networks:
+      net1:
+        ipv4_address: 192.168.1.50
