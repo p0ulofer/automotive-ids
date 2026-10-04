@@ -1,0 +1,24 @@
+# =============================================================================
+# config/datasets/attack/ARR-Req-a1.yaml -- Request (a) MITM (Fig. 2a)
+# =============================================================================
+# Atacante em MITM (poison ARP + relay): intercepta os requests ECHO do
+# cliente, injeta um request proprio ao servidor (client id do atacante) e
+# fabrica a response ao cliente com client/session ORIGINAL do request
+# (wiretap assumido, Sec. IV-A). O servidor real so ve os requests injetados.
+#
+# Alvo (Tabela III / interpretacao (A)): 772 anomalia / 3291 total = 23.5%.
+# Calibracao: N~126 req/13s (cycle 100ms); anomalia = 2*t*N (inject+fab),
+# total = N(2+t)+SD.
+# Obs: t=0.30 -> terminate=46 (seed42) -> anomalia 92 (+19.5% do alvo 77).
+# t=0.25 -> terminate~38 -> anomalia ~75, total ~322, ratio ~23%.
+
+dataset: ARR-Req-a1
+base: normal_rr
+variant: "Request (a) MITM - terminate + inject + fab_resp_client"
+seed: 42
+duration_s: 135
+# args extras do tools/attacker/attacker.py (poison/duration/seed/stats
+# sao acrescentados pelo gerador)
+attacker_args: >-
+  --terminate-requests 0.25 --inject-requests
+  --req-style knows --fab-style knows

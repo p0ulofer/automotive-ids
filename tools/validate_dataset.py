@@ -7,7 +7,19 @@ Uso:
     python3 tools/validate_dataset.py <entrada.pcap> [--dataset normal_rr]
         [--scale 0.05] [--removed-dups N] [--update-manifest]
 
-Valida:
+Modo ataque (Fase 3) -- valida volumes da Tabela III por rotulo:
+    python3 tools/validate_dataset.py <entrada.pcap> --attack
+        --attacker-mac MAC [--scale 0.05] [--update-manifest]
+
+    label = 1 sse src MAC == --attacker-mac (regra de rotulo da Fase 3).
+    Criticos no modo ataque: razao anomalia/total +-10%% (relativo),
+    contagem de anomalia +-10%% (relativo) e total +-10%% (relativo)
+    face aos alvos por set (interpretacao (A), docs/attack_datasets.md);
+    truncados == 0; duplicatas == 0. Session ID continuity fica
+    INFORMATIVO (as fabricacoes de atacante misturam contadores de sessao).
+    Manifest: datasets/attack/MANIFEST.json.
+
+Valida (modo normal):
     - total de pacotes vs alvo do artigo (tolerancia +-10% do alvo efetivo;
       com --scale N o alvo efetivo = alvo * N, para runs reduzidos)
     - SD vs nao-SD
@@ -38,7 +50,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 try:
-    from scapy.all import PcapReader, IP, UDP, conf
+    from scapy.all import PcapReader, Ether, IP, UDP, conf
     conf.verb = 0
 except ImportError:
     sys.exit("ERRO: scapy nao encontrado. Instale com: pip install scapy")
@@ -51,6 +63,36 @@ TARGETS = {
     "normal_rr": 6455,
     "normal_nepc": 255128,
     "normal_nec": 1722011,
+}
+
+# Alvos por set de ATAQUE (Tabela III / Sec. 3.2, interpretacao (A)):
+# {id: (anomalia, total)} -- anomalia = pacotes com src MAC do atacante.
+TARGETS_ATTACK = {
+    "ARR-Req-a1": (772, 3291),
+    "ARR-Req-b1": (284, 2936),
+    "ARR-Req-c1": (255, 1271),
+    "ARR-Req-c2": (255, 1271),
+    "ARR-Req-c3": (256, 1272),
+    "ARR-Res-a1": (773, 3291),
+    "ARR-Res-b1": (284, 2937),
+    "ANEpc-a1": (1732, 4077),
+    "ANEpc-a2": (1732, 4077),
+    "ANEpc-a3": (1732, 4077),
+    "ANEpc-a4": (1732, 4077),
+    "ANEpc-a5": (1732, 4077),
+    "ANEpc-a6": (1732, 4077),
+    "ANEpc-a7": (1733, 4078),
+    "ANEpc-a8": (1733, 4078),
+    "ANEpc-c1": (1412, 4237),
+    "ANEpc-c2": (1413, 4237),
+    "ANEc-b1": (181, 978),
+    "ANEc-b2": (180, 977),
+    "ANEc-b3": (180, 977),
+    "ANEc-b4": (180, 977),
+    "ANEc-b5": (180, 977),
+    "ANEc-a1": (2313, 5385),
+    "ANEc-c1": (6350, 12154),
+    "ANEc-c2": (6351, 12154),
 }
 
 SD_PORT = 30490
@@ -130,11 +172,29 @@ def main():
                     help="duplicatas removidas pelo merge (so relatorio)")
     ap.add_argument("--update-manifest", action="store_true",
                     help="atualiza datasets/normal/MANIFEST.json")
+    ap.add_argument("--attack", action="store_true",
+                    help="modo ataque: valida volumes por rotulo (Fase 3)")
+    ap.add_argument("--attacker-mac", default=None, metavar="MAC",
+                    help="MAC do atacante (label=1 quando src MAC == este)")
     args = ap.parse_args()
 
+    if args.attack and not args.attacker_mac:
+        sys.exit("ERRO: --attack exige --attacker-mac MAC")
+    attacker_mac = args.attacker_mac.lower() if args.attacker_mac else None
+
     ds_name = args.dataset or Path(args.pcap).stem
-    target_full = TARGETS.get(ds_name, 0)
-    target = int(round(target_full * args.scale)) if target_full else 0
+    if args.attack:
+        atk_t = TARGETS_ATTACK.get(ds_name)
+        if atk_t is None:
+            sys.exit(f"ERRO: '{ds_name}' nao esta em TARGETS_ATTACK")
+        target_full = atk_t[1]
+        target_anom_full = atk_t[0]
+        target = int(round(target_full * args.scale))
+        target_anom = int(round(target_anom_full * args.scale))
+    else:
+        target_full = TARGETS.get(ds_name, 0)
+        target = int(round(target_full * args.scale)) if target_full else 0
+        target_anom = 0
 
     total = 0
     sd_count = 0
@@ -151,6 +211,9 @@ def main():
     # duplicatas pos-merge (mesma chave do merge_captures)
     seen_keys = set()
     dup_count = 0
+    # rotulos por pacote (modo ataque): label=1 se src MAC == atacante
+    anomaly_pkts = 0
+    normal_pkts = 0
 
     t_first = t_last = None
 
@@ -160,6 +223,12 @@ def main():
         if t_first is None:
             t_first = ts
         t_last = ts
+
+        if attacker_mac is not None:
+            if Ether in pkt and pkt[Ether].src.lower() == attacker_mac:
+                anomaly_pkts += 1
+            else:
+                normal_pkts += 1
 
         k = pkt_key(pkt)
         if k is not None:
@@ -249,10 +318,33 @@ def main():
 
     ng_pct = (ng_responses / responses * 100.0) if responses else 0.0
 
+    # ---- metricas por rotulo (modo ataque) ----
+    if args.attack:
+        anom_ratio = (anomaly_pkts / total) if total else 0.0
+        tgt_ratio = (target_anom_full / target_full) if target_full else 0.0
+        ratio_diff = abs(anom_ratio - tgt_ratio) / tgt_ratio if tgt_ratio else 0.0
+        anom_diff = (abs(anomaly_pkts - target_anom) / target_anom
+                     if target_anom else 0.0)
+        total_diff = (abs(total - target) / target) if target else 0.0
+        ratio_ok = ratio_diff <= TOLERANCE
+        anom_ok = anom_diff <= TOLERANCE
+        anom_total_ok = total_diff <= TOLERANCE
+
     # ---- relatorio ----
     print("=" * 72)
-    print(f"VALIDACAO DO DATASET: {ds_name}  (scale={args.scale})")
+    print(f"VALIDACAO DO DATASET: {ds_name}  (scale={args.scale}"
+          + ("  MODO ATAQUE" if args.attack else "") + ")")
     print("=" * 72)
+    if args.attack:
+        print(f"  total de pacotes        : {total}   (alvo {target}, "
+              f"diff {total_diff * 100:.1f}% {'' if anom_total_ok else 'FORA'})")
+        print(f"  anomalia (label=1)      : {anomaly_pkts}  (alvo {target_anom}, "
+              f"diff {anom_diff * 100:.1f}% {'' if anom_ok else 'FORA'})")
+        print(f"  normal   (label=0)      : {normal_pkts}")
+        print(f"  razao anomalia/total    : {anom_ratio * 100:.1f}%  "
+              f"(alvo {tgt_ratio * 100:.1f}%, diff {ratio_diff * 100:.1f}% "
+              f"{'' if ratio_ok else 'FORA'})")
+        print(f"  attacker MAC            : {attacker_mac}")
     print(f"  total de pacotes        : {total}")
     if target_full:
         print(f"  alvo do artigo          : {target_full}"
@@ -297,7 +389,9 @@ def main():
 
     # ---- manifest ----
     if args.update_manifest:
-        manifest_path = Path(__file__).resolve().parent.parent / "datasets/normal/MANIFEST.json"
+        base = "datasets/attack" if args.attack else "datasets/normal"
+        manifest_path = (Path(__file__).resolve().parent.parent
+                         / base / "MANIFEST.json")
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest = {}
         if manifest_path.exists():
@@ -334,10 +428,33 @@ def main():
             "duplicate_packets": dup_count,
             "duplicates_removed": args.removed_dups,
         }
+        if args.attack:
+            manifest[ds_name].update({
+                "attack": True,
+                "attacker_mac": attacker_mac,
+                "anomaly_packets": anomaly_pkts,
+                "normal_packets": normal_pkts,
+                "anomaly_ratio": round(anom_ratio, 4),
+                "target_anomaly": target_anom_full,
+                "target_total": target_full,
+                "target_ratio": round(tgt_ratio, 4),
+                "ratio_diff_pct": round(ratio_diff * 100, 2),
+                "anomaly_diff_pct": round(anom_diff * 100, 2),
+                "in_tolerance_10pct": bool(ratio_ok and anom_ok
+                                           and anom_total_ok),
+            })
         manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
         print(f"[manifest] atualizado: {manifest_path}")
 
     # ---- exit code ----
+    if args.attack:
+        ok = (truncated == 0 and dup_count == 0
+              and ratio_ok and anom_ok and anom_total_ok)
+        if not ok:
+            print("[VALIDACAO] FALHA (modo ataque)")
+            sys.exit(1)
+        print("[VALIDACAO] OK (modo ataque)")
+        sys.exit(0)
     ok = (in_tolerance and truncated == 0 and dup_count == 0
           and breaks_ok and loss_ok)
     if not ok:

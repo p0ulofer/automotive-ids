@@ -1,0 +1,24 @@
+# =============================================================================
+# config/datasets/attack/ANEpc-a1.yaml -- NE periodic (\\*) variante (a) MITM
+# =============================================================================
+# Atacante em MITM faz tamper das notificacoes do evento 0x8001 do servico
+# 0x1235 (NEpc): payload alterado (violating), re-emitido com src MAC do
+# atacante (label=1). Requests ECHO e SD seguem relayados transparentes
+# (label=0). Ciclos/flags herdam do base (normal_nepc): cycle 20ms,
+# notify 10ms. Neigh primado permanent no setup (MITM garantido de t=0).
+#
+# Alvo (Tabela III / interpretacao (A)): 1732 anomalia / 4077 total = 42.5%.
+# Medidas (5s, sem duplicados): notifs 85.5/s, ECHO 92/s, setmode 1.6/s,
+# SD ~27 (burst) -> ~180/s.
+#   ratio = t*85.5/180 = 0.425 -> t=0.90
+#   duration = 4077/180 ~= 23s
+# Reduced: --scale 0.25 (5.75s -> ~1040 pkt vs alvo 1019).
+
+dataset: ANEpc-a1
+base: normal_nepc
+variant: "NE(*) (a) MITM - tamper-notify 90% (violating, mixed signal)"
+seed: 42
+duration_s: 23
+attacker_args: >-
+  --tamper-notify 0.90 --tamper-svc 0x1235
+  --tamper-kind violating --tamper-signal mixed

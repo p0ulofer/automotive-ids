@@ -1,0 +1,23 @@
+# =============================================================================
+# config/datasets/attack/ANEc-a1.yaml -- NE on-change (dagger) variante (a)
+# =============================================================================
+# Atacante em MITM faz tamper das notificacoes de TODOS os eventos visiveis
+# (default 0x1235+0x1236 -- o MITM nao distingue servicos): payload alterado,
+# re-emitido com src MAC do atacante (label=1). Trafego normal RR+NEpc+NEc
+# (relayado, label=0) -- como em Normal_NEc. Neigh primado no setup.
+#
+# Alvo (Tabela III / interpretacao (A)): 2313 anomalia / 5385 total = 43.0%.
+# Medidas (5.5s, sem duplicados): notifs 160/s (80 NEpc + 80 NEc), ECHO 33/s,
+# SD 24 (burst), total ~198/s:
+#   ratio = t*160/199 = 0.43 -> t=0.53
+#   duration = 5385/198 ~= 27s
+# Reduced: --scale 0.25 (6.75s -> ~1335 pkt vs alvo 1346).
+
+dataset: ANEc-a1
+base: normal_nec
+variant: "NE(dagger) (a) MITM - tamper-notify 53% (violating, mixed signal)"
+seed: 42
+duration_s: 27
+attacker_args: >-
+  --tamper-notify 0.53
+  --tamper-kind violating --tamper-signal mixed

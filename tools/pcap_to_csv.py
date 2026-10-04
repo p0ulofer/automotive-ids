@@ -57,7 +57,7 @@ import sys
 from pathlib import Path
 
 try:
-    from scapy.all import PcapReader, IP, UDP, conf
+    from scapy.all import Ether, PcapReader, IP, UDP, conf
     conf.verb = 0
 except ImportError:
     sys.exit("ERRO: scapy nao encontrado. Instale com: pip install scapy")
@@ -205,6 +205,9 @@ def main():
     ap.add_argument("pcap", help="pcap de entrada")
     ap.add_argument("--out", help="CSV de saida (default: <pcap>.csv)")
     ap.add_argument("--label", type=int, default=0, help="label por omissao 0")
+    ap.add_argument("--attacker-mac", default=None, metavar="MAC",
+                    help="se definido, label=1 quando src MAC == este MAC "
+                         "(regra de rotulo da Fase 3; ignora --label)")
     args = ap.parse_args()
 
     out_path = Path(args.out) if args.out else Path(args.pcap).with_suffix(".csv")
@@ -216,7 +219,7 @@ def main():
         "return_code", "return_code_name", "protocol_version",
         "payload_hex", "payload_len",
         "is_sd", "sd_entries", "sd_options", "sd_entry_types",
-        "label",
+        "src_mac", "label",
     ]
 
     n_total = n_someip = n_sd = 0
@@ -275,6 +278,11 @@ def main():
                     if entries:
                         instance_id = entries[0]["instance_id"]
 
+                src_mac = (pkt[Ether].src.lower() if Ether in pkt else "")
+                if args.attacker_mac:
+                    row_label = int(src_mac == args.attacker_mac.lower())
+                else:
+                    row_label = args.label
                 w.writerow({
                     "timestamp": f"{float(pkt.time):.6f}",
                     "src_ip": ip.src,
@@ -297,7 +305,8 @@ def main():
                     "sd_entries": sd_entries,
                     "sd_options": sd_options,
                     "sd_entry_types": sd_entry_types,
-                    "label": args.label,
+                    "src_mac": src_mac,
+                    "label": row_label,
                 })
             if n_msgs == 0:
                 n_skipped += 1
