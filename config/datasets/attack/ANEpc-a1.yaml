@@ -12,13 +12,20 @@
 # SD ~27 (burst) -> ~180/s.
 #   ratio = t*85.5/180 = 0.425 -> t=0.90
 #   duration = 4077/180 ~= 23s
-# Reduced: --scale 0.25 (5.75s -> ~1040 pkt vs alvo 1019).
+#
+# Recalibracao v2 (run 23s FALHOU: total +10.9%, anomalia +15.1%):
+# o reduced (5s) SUBESTIMA taxas ~7.7% (ramp de subscribe amortizado
+# so no full). Taxas full medidas: nao-SD 194.4/s, notifs 95.6/s, SD=54
+# (SD(D) ~= 1.5D + ~20):
+#   total = 196D + 20 = 4077 -> D ~= 20.7 -> 21s
+#   anomalia = t*95.6*21 = 1732 -> t ~= 0.86
+# Projecao v2: total 4136 (+1.4%), anomalia 1738 (+0.3%), razao 42.0% (-1.1%).
 
 dataset: ANEpc-a1
 base: normal_nepc
 variant: "NE(*) (a) MITM - tamper-notify 90% (violating, mixed signal)"
 seed: 42
-duration_s: 23
+duration_s: 21
 attacker_args: >-
-  --tamper-notify 0.90 --tamper-svc 0x1235
+  --tamper-notify 0.86 --tamper-svc 0x1235
   --tamper-kind violating --tamper-signal mixed

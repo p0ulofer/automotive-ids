@@ -6,12 +6,14 @@
 # payload/valores de ataque"). Contagens esperadas identicas as de a1.
 #
 # Alvo (Tabela III / interpretacao (A)): 1732 anomalia / 4077 total = 42.5%.
+# Recalibracao v2 (taxas full, drift +7.7% do reduced): 21s / t=0.86
+# (mesma base de ANEpc-a1 -- ver ANEpc-a1.yaml).
 
 dataset: ANEpc-a6
 base: normal_nepc
 variant: "NE(*) (a) MITM - tamper-notify 90% (plausible, speed signal)"
 seed: 42
-duration_s: 23
+duration_s: 21
 attacker_args: >-
-  --tamper-notify 0.90 --tamper-svc 0x1235
+  --tamper-notify 0.86 --tamper-svc 0x1235
   --tamper-kind plausible --tamper-signal speed

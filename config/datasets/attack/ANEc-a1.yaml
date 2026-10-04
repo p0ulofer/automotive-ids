@@ -14,12 +14,21 @@
 # (nao 198) -> D=27s daria total +10.05% (FALHA). D corrigida:
 #   total = 218.5*D + 30 = 5385 -> D ~= 24.5 -> 25s
 # Projecao a 25s: total +1.9%, anomalia +2.9%, razao +1.0%.
+#
+# Recalibracao v3 (taxas FULL medidas no run 25s, drift +5.7% sobre o reduced;
+# o run 25s passou mas com margem apertada: +8.3% total, +7.7% anomalia --
+# risco real de falha num rerun com jitter de +/-2-3%):
+#   nao-SD 231.1/s, notifs 188.1/s, SD(25)=54 (SD(D) ~= 1.5D + 52 para esta base)
+#   total = 231.1D + 1.5D + 52 = 5385 -> D = 23s
+#   anomalia = t*188.1*23 = 2313 -> t = 0.535 -> 0.54
+# Projecao v3: total 5402 (+0.3%), anomalia 2357 (+1.9%), razao 43.1% (+0.4%).
+# Re-run apos a fila ANEpc (antes do relatorio consolidado).
 
 dataset: ANEc-a1
 base: normal_nec
-variant: "NE(dagger) (a) MITM - tamper-notify 53% (violating, mixed signal)"
+variant: "NE(dagger) (a) MITM - tamper-notify 54% (violating, mixed signal)"
 seed: 42
-duration_s: 25
+duration_s: 23
 attacker_args: >-
-  --tamper-notify 0.53
+  --tamper-notify 0.54
   --tamper-kind violating --tamper-signal mixed
