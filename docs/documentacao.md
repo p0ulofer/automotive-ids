@@ -1,12 +1,16 @@
-# Relatório Completo — Fases 1 e 2 do projeto someip-ids
+# Relatório Completo — Fases 1, 2 e 3 do projeto someip-ids
 
 Documento-geral do projeto **someip-ids**: reprodução local do ambiente do
 artigo *"SOME/IP Intrusion Detection System Using Real-Time and Retroactive
-Anomaly Detection"* (Koyama et al., IEEE VTC2022-Spring) e geração dos
-datasets *Normal* que alimentarão o IDS (Fase 3).
+Anomaly Detection"* (Koyama et al., IEEE VTC2022-Spring), geração dos
+datasets *Normal* (Fase 2) e dos datasets de *ataque* (Fase 3) que
+alimentarão o IDS (Fase 4).
 
 - Detalhe técnico da Fase 2 (evidências completas): [`relatorio_fase2.md`](relatorio_fase2.md)
-- Comandos: `./scripts/smoke_test.sh` (Fase 1) · `./scripts/gen_dataset.sh` (Fase 2)
+- Fase 3: tabela aprovada [`attack_datasets.md`](attack_datasets.md) ·
+  modelo, premissas e bugs [`attack_model.md`](attack_model.md)
+- Comandos: `./scripts/smoke_test.sh` (Fase 1) · `./scripts/gen_dataset.sh`
+  (Fase 2) · `./scripts/gen_attack_dataset.sh` (Fase 3)
 
 ---
 
@@ -243,7 +247,7 @@ e raciocínio completos: `relatorio_fase2.md` §4 e §8.
 
 ---
 
-## Parte III — O que leva ao mundo real (Fase 3)
+## Parte III — O que leva ao mundo real (Fase 4)
 
 Do projeto, para uma rede veicular real, levam-se **5 coisas**:
 
@@ -271,7 +275,91 @@ nossa pipeline em modo baseline; ataques (label 1) só injetados em bancada.
 
 ---
 
-## Parte IV — Estado atual e próximos passos
+## Parte IV — Fase 3: Datasets de ataque (variante (a), MITM)
+
+> Tabela aprovada: [`attack_datasets.md`](attack_datasets.md) ·
+> modelo, premissas e bugs: [`attack_model.md`](attack_model.md) ·
+> gerador: `./scripts/gen_attack_dataset.sh <id> [--scale N]`
+
+### 4.1 Objetivo
+
+Gerar os **25 datasets de anomalia** da Tabela II do artigo (label 1 =
+tráfego de ataque) sobre as três bases normais da Fase 2, com volumes e
+proporções da Tabela III em interpretação **(A)** (total da linha dividido
+proporcionalmente entre os sets da linha). Gates de aceite: **±10 %** em
+total, anomalia e razão, por set.
+
+### 4.2 Escopo executado — 11 dos 25 sets
+
+Executada a **variante (a) MITM** (Figs. 1a/2a/3a): `ARR-Req-a1`,
+`ARR-Res-a1`, `ANEpc-a1..a8`, `ANEc-a1`. As restantes **14 sets** (variantes
+(b) e (c)) exigem o atacante como *endpoint* SOME/IP (servidor/cliente falso
++ SD subscribe) e ficam **registadas como trabalho futuro** (§4.6).
+
+### 4.3 Pipeline
+
+- **ecu6** — container atacante (`docker-compose.attacker.yml` +
+  `tools/attacker/attacker.py`): ARP poisoning dos pares ecu1↔ecu2 na net1;
+  primitivas `--terminate-requests/-responses`, `--inject-requests`,
+  `--tamper-notify`, `--fab-style`; stats em `logs/ds/*_attacker_stats.json`.
+- **Premissas** (`attack_model.md` §3): FDB estático na net1; learning off na
+  porta do atacante; primagem ARP `ip neigh replace … nud permanent`
+  (sem ela `arp_accept=0` + corrida real-vs-atacante escapam o 1.º segundo);
+  dedup lógica no merge; regra raw `2 ACCEPT + 7 DROP` com ecu6 up
+  (`expected_raw()`); teardown com `ip neigh del` explícito.
+- **Rótulo:** `label = 1 ⟺ Ether.src = MAC do atacante`
+  (`pcap_to_csv.py --attacker-mac`); relay transparente mantém label 0.
+- **Merge:** 6 capturas (ecu1, ecu2 eth0/eth1, ecu3, ecu4, ecu5) →
+  `merge_captures.py --attacker-mac` com chave lógica SOME/IP
+  `(5-tuple, svc, mtd, client, session, mtype)` e **preferência label1** em
+  conflito de chave exata (correção da race label0/label1 — §4.5).
+- **Validação:** `validate_dataset.py --attack` com `TARGETS_ATTACK`
+  (25 sets) → `datasets/attack/MANIFEST.json`.
+
+### 4.4 Resultados — 11/11 PASS (2026-10-04)
+
+| | ARR-Req-a1 | ARR-Res-a1 | ANEpc-a1..a8 | ANEc-a1 |
+|---|---|---|---|---|
+| total / alvo | 3 272 / 3 291 (+0,6 %) | 3 310 / 3 291 (+0,6 %) | 4 111–4 133 / 4 077–4 078 (+0,8…+1,4 %) | 5 364 / 5 385 (+0,4 %) |
+| anomalia / alvo | 738 / 772 (−4,4 %) | 745 / 773 (−3,6 %) | 1 686–1 744 / 1 732–1 733 (−2,7…+0,7 %) | 2 357 / 2 313 (+1,9 %) |
+| razão (alvo) | 22,6 % (23,5 %) | 22,5 % (23,5 %) | 40,9–42,2 % (42,5 %) | 43,9 % (43,0 %) |
+| truncados / dups | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+- **Corpus:** 44 932 pacotes (alvo 44 585, **+0,78 %**); 17 598 anomalias
+  (alvo 17 716, **−0,67 %**); razão global 39,17 % vs 39,74 % (−1,43 %).
+- **Máx |Δ|** em qualquer gate: **4,4 %** (folga >2× face ao limite de 10 %).
+- Integridade: `truncated=0` e `duplicate=0` em **todos**; máx.
+  `session_id_break_rate` 0,290 % (gate 1,14 %); raw `2 7` em todos os runs.
+- Artefactos: `datasets/attack/{id}.pcap|.csv` (fora do git, `.gitignore`) +
+  `MANIFEST.json` (versionado).
+
+### 4.5 Bugs corrigidos (detalhe em `attack_model.md` §4)
+
+1. **Poison determinístico** — srp 2→0,5 s + primagem `neigh permanent`
+   (`arp_accept=0`; corrida real-vs-atacante); teardown com `neigh del`
+   (`flush all` não remove `permanent`).
+2. **Dupla-contagem origem↔cópia** — a cópia re-emitida tem IP-ID/payload
+   diferentes → chave lógica SOME/IP no merge (SD excluída).
+3. **Race label0/label1** — a ordem dos ficheiros depende de eth0/eth1 ↔
+   net1/net2 (alterna por recriação do container); em conflito de chave
+   exata a vista **label1 substitui** a label0 (sem isto o ARR-Req-a1
+   contava 46 anomalias em vez de 92).
+4. **Calibração por taxa medida, não estimada** — SD cresce ~1,5 pkt/s (não
+   é burst fixa) e o reduced de 5–6 s subestima taxas full em ~6–8 % (ramp de
+   subscribe) → recalibrações finais: ARR-Req 135 s/t=0,29 · ANEpc 21 s/t=0,86
+   · ANEc 23 s/t=0,54 (correções em `a4cec37` e `43c6671`).
+
+### 4.6 Pendências da Fase 3
+
+- **14 sets (b)/(c)** — exigem atacante como *endpoint* SOME/IP (servidor
+  falso com notificações, cliente falso, SD subscribe) + decisão de rótulo
+  para respostas a pedidos do atacante — **trabalho futuro** (escopo a decidir);
+- bug de *wrap* de Session-ID (`missing=1` fantasma) mantido **documentado**
+  sem ação (`relatorio_fase2.md` §8.2) — a revisitar na Fase 4.
+
+---
+
+## Parte V — Estado atual e próximos passos
 
 ### Checklist
 
@@ -285,15 +373,26 @@ nossa pipeline em modo baseline; ataques (label 1) só injetados em bancada.
       desvios explicados, perda NEc = 0, smoke C1..C5 PASS (exit 0)
 - [x] Commit da Fase 2 (`e633f9f`) + rename `docs/documentacao.md`
       (`e689dc7`) — pushados para `origin/main`
-- [ ] Fase 3 — features + IDS sobre os três datasets
+- [x] Fase 3 — 11 datasets de ataque (variante (a), MITM) — **11/11 PASS**
+      (2026-10-04, ver Parte IV)
+- [ ] Fase 3 (pendente) — 14 sets das variantes (b)/(c) — exige atacante
+      como endpoint SOME/IP (trabalho futuro, §4.6)
+- [ ] Fase 4 — parser + features + IDS sobre os datasets
+      (numeração: a "Fase 3 = features + IDS" dos relatórios antigos passou
+      a ser a Fase 4; a Fase 3 são os datasets de ataque)
 
 ### Estado do git
 
 - **Fase 1:** commitada (3 commits, pushados).
 - **Fase 2:** commitada (`e633f9f` — apps de dataset, tools, configs,
   docs) + `e689dc7` (rename para `docs/documentacao.md`) — ambos pushados.
-- **Working tree:** limpa; datasets `.pcap`/`.csv` ficam de fora do git
-  (`.gitignore`), `MANIFEST.json` versionado.
+- **Fase 3:** 6 commits (`1b011b3` pipeline · `32b234c` docs+calibrações ·
+  `a4cec37`/`43c6671` recalibrações · `f917551` MANIFEST · `a6142b7` infra)
+  — **pushados para `origin/main`** (`a6142b7`, verificado por
+  `git ls-remote`).
+- **Working tree:** limpa (exceto este documento, não commitado ainda);
+  datasets `.pcap`/`.csv` ficam de fora do git (`.gitignore`), `MANIFEST.json`
+  versionado; PDF do artigo fica de fora (untracked).
 
 ### Comandos
 
@@ -304,4 +403,8 @@ nossa pipeline em modo baseline; ataques (label 1) só injetados em bancada.
 ./scripts/gen_dataset.sh normal_nepc [--scale 0.05]   # Fase 2: dataset
 python3 tools/validate_dataset.py datasets/normal/normal_nepc.pcap \
     --dataset normal_nepc --scale 1.0                 # validação à mão
+
+./scripts/gen_attack_dataset.sh ANEc-a1 [--scale 0.10]  # Fase 3: ataque
+python3 tools/validate_dataset.py --attack --dataset ANEc-a1 --scale 1.0 \
+    --attacker-mac <MAC_do_ecu6> datasets/attack/ANEc-a1.pcap   # à mão
 ```
