@@ -7,3 +7,4 @@ __pycache__/
 .vscode/
 datasets/**/*.pcap
 datasets/**/*.csv
+features/*.csv
