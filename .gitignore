@@ -8,3 +8,4 @@ __pycache__/
 datasets/**/*.pcap
 datasets/**/*.csv
 features/*.csv
+2022 SOME_IP_Intrusion_Detection_System_Using_Real-Time_and_Retroactive_Anomaly_Detection - Takuma Koyama et. al.pdf
