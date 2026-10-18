@@ -223,16 +223,78 @@ Estender a tupla com o estado por sinal multiplica o espaço de estados; o split
   no `ip`) — os 1 553 FPs residuais continuam a ser amplificados pelo V-C 2. O
   limite é a **amplificação** (§3.1), não a qualidade do estado.
 
-### 3.6 Limiares aprendidos com 100 % dos normais
+### 3.6 Limiares de discretização: 100 % vs 70 % (experimento E1b)
 
 O protocolo E1 reaprende só as **transições** e a **contagem de remetentes** no
-treino (70 %). Os **limiares de discretização** (bins de tempo e de `ΔP`), da
-Fase 4, continuam a vir dos **100 %** dos normais.
+treino (70 %). Os **limiares de discretização** (bins de tempo, da Fase 4) vinham
+dos **100 %** dos normais (`ids_model.md` §7.1). O **E1b** testa a alternativa
+honesta: reaprendê-los **só nos primeiros 70 %** de cada normal
+(`extract_features.py --learn-holdout 0.3` → `features_e1b/`). Tudo o resto é
+igual (`T = 3 s`, sem payload, E1 + sem MAC).
 
-- `ids_model.md` §7.1: a FPR honesta é a do E1, mas permanece parcialmente
-  optimista/pessimista porque os bins "viram" parte do conjunto de teste.
-- Efeito visível: as classes (i)/(ii) de D1a mostram que a FPR do Algoritmo 1 é
-  dominada por **cobertura de treino**, não pelo estado ser impossível.
+**Ressalva de isolamento.** O `ARR-Req-a1` foi regenerado a escala 1.0 (a
+captura de entrada tinha sido substituída por um *smoke run* a 10 %), pelo que
+a coluna congelada `baseline_v3` e a coluna `E1b` **não** partilham o mesmo
+`ARR-Req-a1`. Para separar o efeito, correu-se um **Control** (limiares 100 %)
+sobre os dados atuais: o Control é **idêntico ao `baseline_v3` em 13 dos 14
+datasets** (só `ARR-Req-a1` difere), o que valida a reprodução e mostra que a
+diferença `baseline_v3 → Control` é exclusivamente do dataset regenerado. A
+comparação **limpa do efeito dos limiares é `E1b` vs `Control`**.
+
+`ip`:
+
+| métrica | `baseline_v3` | Control (100 %) | E1b (70 %) |
+|---|---|---|---|
+| A1 FP (normais, holdout) | 87 | 87 | **63** |
+| TPR direta A1 (micro) | 0,0289 | 0,0278 | 0,0277 |
+| **TPR final (micro)** | 0,9477 | 0,9431 | **0,9431** |
+| TP diretos / por contágio | 508 / 16 170 | 489 / 16 107 | 488 / 16 108 |
+| **FPR final (3 normais isolados)** | 0,0546 | 0,0546 | **0,0444** |
+| FPR final (normais *dentro* dos ataques) | 0,2222 | 0,2137 | **0,2405** |
+| % deteções tempo-real | 3,3 | 3,1 | 3,0 |
+
+`ip_client`:
+
+| métrica | `baseline_v3` | Control (100 %) | E1b (70 %) |
+|---|---|---|---|
+| A1 FP (normais, holdout) | 87 | 87 | **63** |
+| TPR direta A1 (micro) | 0,0289 | 0,0278 | 0,0277 |
+| **TPR final (micro)** | 0,4866 | 0,4828 | **0,4828** |
+| TP diretos / por contágio | 508 / 8 056 | 489 / 8 007 | 488 / 8 008 |
+| **FPR final (3 normais isolados)** | 0,0030 | 0,0030 | **0,0005** |
+| FPR final (normais *dentro* dos ataques) | 0,1446 | 0,1379 | **0,1647** |
+| % deteções tempo-real | 5,9 | 5,6 | 5,3 |
+
+Por categoria (`Control | E1b`; FPR final):
+
+| cat | `ip` TPR fin | `ip` FPR fin | `ip_client` TPR fin | `ip_client` FPR fin |
+|---|---|---|---|---|
+| ARR-Req | 0,8144 \| 0,8144 | 0,2091 \| 0,2091 | 0,7967 \| 0,7967 | 0,1910 \| 0,1910 |
+| ARR-Res | 0,1356 \| 0,1356 | 0,0519 \| 0,0519 | 0,0201 \| 0,0201 | 0,0152 \| 0,0152 |
+| ANEpc | 0,9923 \| 0,9923 | 0,1652 \| **0,2034** | 0,4713 \| 0,4713 | 0,1032 \| **0,1414** |
+| ANEc | 0,9512 \| 0,9512 | 0,6652 \| 0,6656 | 0,5978 \| 0,5978 | 0,4191 \| 0,4195 |
+
+**Leitura.**
+
+- **O TPR não muda** (nem direto nem por contágio): a deteção não depende dos
+  bins — os verdadeiros-positivos vêm quase todos do Algoritmo 2 (contágio).
+- **Melhora o A1:** menos FP no holdout dos normais (87 → 63 nos dois) e FPR
+  nos 3 normais isolados mais baixa (0,0546 → 0,0444 em `ip`; 0,0030 → 0,0005 em
+  `ip_client`) — o valor de `ip` fica **mais perto do alvo do artigo** (~0,052).
+- **Piora** a FPR dos normais capturados **dentro dos datasets de ataque**
+  (0,2137 → 0,2405 em `ip`; 0,1379 → 0,1647 em `ip_client`), puxada pelo
+  **ANEpc** (0,1652 → 0,2034 / 0,1032 → 0,1414). Motivo: os limiares E1b, ao
+  excluírem a cauda superior da distribuição de `dT` (os 30 % retidos), geram
+  bins mais estreitos; o tráfego *normal* dentro do ANEpc/ANEc cai nessa cauda
+  → mais transições fora do modelo → mais FP a jusante (contágio).
+
+**Veredicto.** O E1b é praticamente **neutro no TPR** e **ambíguo na FPR**:
+melhora a métrica dos normais isolados (a que se compara ao artigo) mas agrava a
+dos normais dentro dos ataques. Não é uma melhoria uniforme, pelo que **não
+substitui** o `baseline_v3` (100 %); fica reportado como **sensibilidade
+honesta** ao protocolo de limiares. Artefactos: `features_e1b/`,
+`results/exp_E1b/{control_ip,control_ip_client,ip,ip_client}/` e
+`tools/experiment_e1b_report.py` → `results/exp_E1b/E1b_vs_baseline_v3.json`.
 
 ### 3.7 Métricas por sessão têm denominador pequeno
 
@@ -296,6 +358,7 @@ anormalmente lentas ou para estender a marcação a pacotes fora da janela.
 | `baseline_v2` (E1 + sem MAC) | `results/baseline_v2/` (+ `MANIFEST.json`, `diagnose.json`) |
 | `baseline_v3` (T = 3 s, principal) | `results/baseline_v3/` (+ `MANIFEST.json`) |
 | `E3b` (payload sem contadores) | `results/exp_E3b/` (+ `diagnose.json`, `per_signal.json`) |
+| E1b (limiares 70 % + Control 100 %) | `results/exp_E1b/` · `features_e1b/` · `tools/experiment_e1b_report.py` |
 | S1 (smoke do R3) | `results/exp_S1_smoke/` + `tools/smoke_s1_sd_injection.py` |
 | algoritmo e decisões | `docs/ids_model.md`, `docs/feature_model.md`, `docs/attacker_sd_plan.md` |
 

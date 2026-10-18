@@ -1,16 +1,24 @@
-# Relatório Completo — Fases 1, 2 e 3 do projeto someip-ids
+# Relatório Completo — Fases 1 a 5 do projeto someip-ids
 
-Documento-geral do projeto **someip-ids**: reprodução local do ambiente do
-artigo *"SOME/IP Intrusion Detection System Using Real-Time and Retroactive
-Anomaly Detection"* (Koyama et al., IEEE VTC2022-Spring), geração dos
-datasets *Normal* (Fase 2) e dos datasets de *ataque* (Fase 3) que
-alimentarão o IDS (Fase 4).
+Documento-geral do projeto **someip-ids**: reprodução local do ambiente e do
+IDS do artigo *"SOME/IP Intrusion Detection System Using Real-Time and
+Retroactive Anomaly Detection"* (Koyama et al., IEEE VTC2022-Spring) — geração
+dos datasets *Normal* (Fase 2) e de *ataque* (Fase 3), extração das features de
+transição de estado (Fase 4) e os algoritmos de deteção real-time/retroativo
+(Fase 5).
 
+- Passo a passo do zero ao resultado final: [`../README.md`](../README.md)
 - Detalhe técnico da Fase 2 (evidências completas): [`relatorio_fase2.md`](relatorio_fase2.md)
 - Fase 3: tabela aprovada [`attack_datasets.md`](attack_datasets.md) ·
   modelo, premissas e bugs [`attack_model.md`](attack_model.md)
+- Fase 4 (features de transição, Tabela IV): [`feature_model.md`](feature_model.md)
+- Fase 5 (IDS + avaliação): [`ids_model.md`](ids_model.md) ·
+  relatório final [`relatorio_fase5.md`](relatorio_fase5.md) ·
+  plano do R3 (não implementado) [`attacker_sd_plan.md`](attacker_sd_plan.md)
 - Comandos: `./scripts/smoke_test.sh` (Fase 1) · `./scripts/gen_dataset.sh`
-  (Fase 2) · `./scripts/gen_attack_dataset.sh` (Fase 3)
+  (Fase 2) · `./scripts/gen_attack_dataset.sh` (Fase 3) ·
+  `python3 tools/extract_features.py` (Fase 4) ·
+  `python3 tools/evaluate_ids.py` (Fase 5)
 
 ---
 
@@ -247,7 +255,7 @@ e raciocínio completos: `relatorio_fase2.md` §4 e §8.
 
 ---
 
-## Parte III — O que leva ao mundo real (Fase 4)
+## Parte III — O que leva ao mundo real
 
 Do projeto, para uma rede veicular real, levam-se **5 coisas**:
 
@@ -333,6 +341,16 @@ Executada a **variante (a) MITM** (Figs. 1a/2a/3a): `ARR-Req-a1`,
 - Artefactos: `datasets/attack/{id}.pcap|.csv` (fora do git, `.gitignore`) +
   `MANIFEST.json` (versionado).
 
+> **Nota — datagramas vs. mensagens.** O `datasets/attack/MANIFEST.json` conta
+> **datagramas** de rede (pacotes UDP observados na captura, via
+> `validate_dataset.py`); já os CSVs (`datasets/*/*.csv` e, a jusante,
+> `features/*.csv`) contam **mensagens** SOME/IP — uma linha por mensagem.
+> Como um datagrama pode transportar mais de uma mensagem SOME/IP concatenada,
+> os dois totais podem divergir ligeiramente (nos 11 sets atuais a relação é
+> praticamente 1:1; ex.: `ARR-Req-a1` tem 3 276 datagramas no MANIFEST e 3 277
+> linhas de dados no CSV). A pipeline nunca assume que os dois números são
+> iguais.
+
 ### 4.5 Bugs corrigidos (detalhe em `attack_model.md` §4)
 
 1. **Poison determinístico** — srp 2→0,5 s + primagem `neigh permanent`
@@ -359,7 +377,120 @@ Executada a **variante (a) MITM** (Figs. 1a/2a/3a): `ARR-Req-a1`,
 
 ---
 
-## Parte V — Estado atual e próximos passos
+## Parte V — Fase 4: Features de transição (Tabela IV)
+
+> Modelo e decisões: [`feature_model.md`](feature_model.md) ·
+> extração: `python3 tools/extract_features.py` ·
+> validação: `python3 tools/validate_features.py` (commit `d892ab3`)
+
+### 5.1 Objetivo
+
+Reproduzir a **Tabela IV** do artigo: representar cada mensagem SOME/IP pela
+*transição de estado* relativa à mensagem anterior **da mesma stream**, sem
+treinar nenhum modelo. A transição é a unidade que o IDS da Fase 5 (Figs. 7/8)
+consome.
+
+### 5.2 O que se extrai
+
+- **`stream_key`** = (Service ID, *message type*, remetente); o *remetente* é
+  `src_ip` ou `src_ip`+`client_id` (identidades E2);
+- **`dt_prev_req` / `dt_prev_res`** — intervalo desde o request/response
+  anterior da mesma stream, mais as médias móveis de janela `W = 10`
+  (`dt_prev_req_avg`, `dt_prev_res_avg`);
+- **bins de discretização** `dt_prev_req_bin` / `dt_prev_res_bin` (3 níveis),
+  obtidos por limiares `b1`/`b2` **aprendidos só nos datasets normais**;
+- **`dp_prev_req` / `dp_prev_res`** (+ variantes `_l1`) — diferença de payload
+  (estado de payload, E3/E3b; desligado por omissão);
+- **`n_cs`** (# de Client-Subscribes) e **`os`** (campo opcional).
+
+Os limiares são *anchors* `(min, mediana, max)` por `(svc|tipo)`, com
+`b1 = (min+med)/2` e `b2 = (med+max)/2`. Por omissão são aprendidos com **100 %
+dos normais** (Fase 4 original); com `--learn-holdout 0.3` são aprendidos **só
+nos primeiros 70 %** de cada normal (experimento **E1b**, Parte VI).
+
+### 5.3 Saídas e artefatos
+
+- `features/<nome>.csv` — colunas originais + features + `label` inalterado;
+- `features/thresholds.json` — limiares + metadados (`learn_holdout`, etc.);
+- `features/MANIFEST.json` — contagens por dataset;
+- todos **fora do git** (`.gitignore` inclui `features/*.csv`) e regeneráveis
+  de forma determinística a partir dos CSVs de `datasets/`.
+
+### 5.4 Decisão relevante
+
+`os` é excluído das chaves `NOTIFICATION` de `0x1235`/`0x1236` (a variação de
+`os` aí é ruído de campo, não anomalia). Detalhe em `feature_model.md`.
+
+---
+
+## Parte VI — Fase 5: IDS real-time + retroativo (Koyama §V-B/§V-C)
+
+> Decisões, protocolos e resultados: [`ids_model.md`](ids_model.md) ·
+> fecho consolidado: [`relatorio_fase5.md`](relatorio_fase5.md)
+> (commits `edbd32c` + `bc80bc6`)
+
+### 6.1 Algoritmos
+
+- **Algoritmo 1 (real-time)** — `tools/ids_realtime.py`. Máquina de estados por
+  `stream_key`: uma transição (tupla discretizada) vista no treino é normal;
+  uma transição ausente do modelo (ou um *flag* de CS) dispara alerta. A tupla
+  **não** inclui `n_cs`, que é verificado no fluxo separado da Fig. 8.
+- **Algoritmo 2 (retroativo)** — `tools/ids_retroactive.py`. Agrupa os pacotes
+  em *sessões* e marca a sessão inteira quando deteta a divergência de
+  comportamento **V-C2** (o intervalo request/response da sessão desvia da
+  média) e **V-C3** (novas sessões), com marcação retroativa a partir de uma
+  janela `T` (no artigo, `T` = TTL do SD ≈ 3 s).
+
+Orquestração/avaliação: `tools/evaluate_ids.py` (treina nos primeiros 70 %,
+mede o FPR no 30 % retido dos normais e corre os 11 ataques) e
+`tools/diagnose_ids.py` (breakdown por `stream_key`/categoria).
+
+### 6.2 Protocolo de avaliação (congelado)
+
+- **E1** — *holdout* temporal 70/30 dentro de cada normal;
+- **E2** — identidade `ip`, `ip_client` ou `mac` (oráculo);
+- **D2** — janela retroativa `T = 3 s` (**a priori** = TTL do SD medido);
+  1/5/30 s são só sensibilidade;
+- **E3/E3b** — estado de payload; **E4**, **D1/M1**, **R1/R2** — ablations;
+- **R3** — atacante sem SD (CS arms) — **não implementado** (plano em
+  `attacker_sd_plan.md`);
+- **S1** — smoke do injetor de SD.
+
+### 6.3 Configurações congeladas
+
+| config | protocolo | `T` | diretório |
+|---|---|---|---|
+| `baseline_v1` | antigo (oráculo/MAC, *leaky*) — histórico | 3 s | `results/baseline_v1/` |
+| `baseline_v2` | E1 + sem MAC, literal | TTL | `results/baseline_v2/` |
+| **`baseline_v3`** | **E1 + sem MAC (principal)** | **3 s** | `results/baseline_v3/` |
+
+`baseline_v3` é a configuração **principal**: o Algoritmo 1 é bit-idêntico ao
+de `baseline_v2` (a janela só afeta o Algoritmo 2) e adota `T = 3 s` *a
+priori*, sem escolher `T` para melhorar números.
+
+### 6.4 Resultado principal (`baseline_v3`)
+
+- `ip`: TPR 0,9477 · FPR (3 normais isolados) 0,0546 · 22 % tempo-real;
+- `ip_client`: TPR 0,4866 · FPR 0,0030 · 14 % tempo-real;
+- **0** de 11 padrões com TPR = 1 **e** FPR = 0 (o artigo reporta 5 de 9).
+
+A maior parte dos verdadeiros-positivos vem por **contágio** (a marcação
+retroativa da sessão arrasta pacotes normais rotulados como ataque), não por
+deteção direta; a comparação com os alvos do artigo (TPR ≈ 0,91,
+FPR ≈ 0,052) é feita com ressalvas em `relatorio_fase5.md`.
+
+### 6.5 E1b — limiares reaprendidos só no treino (2026-10-17)
+
+Variante isolada de `baseline_v3`: os limiares de discretização da Fase 4 são
+reaprendidos **só nos primeiros 70 %** de cada normal (`--learn-holdout 0.3`),
+em vez de em 100 %; tudo o resto é igual (`T = 3 s`, sem payload). A tabela
+`baseline_v3` vs `E1b` (por pacote, TPR direto vs contágio, por categoria) está
+em [`relatorio_fase5.md`](relatorio_fase5.md) §E1b; artefatos em
+`results/exp_E1b/` (Control = limiares 100 %, E1b = 70 %) e `features_e1b/`.
+
+---
+
+## Parte VII — Estado atual e próximos passos
 
 ### Checklist
 
@@ -377,9 +508,17 @@ Executada a **variante (a) MITM** (Figs. 1a/2a/3a): `ARR-Req-a1`,
       (2026-10-04, ver Parte IV)
 - [ ] Fase 3 (pendente) — 14 sets das variantes (b)/(c) — exige atacante
       como endpoint SOME/IP (trabalho futuro, §4.6)
-- [ ] Fase 4 — parser + features + IDS sobre os datasets
-      (numeração: a "Fase 3 = features + IDS" dos relatórios antigos passou
-      a ser a Fase 4; a Fase 3 são os datasets de ataque)
+- [x] Fase 4 — features de transição (Tabela IV) dos datasets; limiares
+      aprendidos nos normais; `feature_model.md` (commit `d892ab3`).
+      (numeração: a "Fase 3 = features + IDS" dos relatórios antigos passou a
+      ser a Fase 4; a Fase 3 são os datasets de ataque)
+- [x] Fase 5 — IDS (Algoritmos 1 e 2): pipeline + avaliação E1..E4, D1/M1, D2,
+      R1/R2, E3/E3b, S1; config principal `baseline_v3`; `ids_model.md` +
+      `relatorio_fase5.md` (commit `edbd32c`)
+- [x] Fase 5 — **E1b**: limiares de discretização reaprendidos só no treino
+      (70 %); `relatorio_fase5.md` §E1b (Parte VI §6.5)
+- [ ] Fase 5 (pendente) — **R3** (atacante sem SD / CS arms) e os 14 sets
+      (b)/(c): decisão de escopo do utilizador (`attacker_sd_plan.md`)
 
 ### Estado do git
 
@@ -390,9 +529,16 @@ Executada a **variante (a) MITM** (Figs. 1a/2a/3a): `ARR-Req-a1`,
   `a4cec37`/`43c6671` recalibrações · `f917551` MANIFEST · `a6142b7` infra)
   — **pushados para `origin/main`** (`a6142b7`, verificado por
   `git ls-remote`).
-- **Working tree:** limpa (exceto este documento, não commitado ainda);
-  datasets `.pcap`/`.csv` ficam de fora do git (`.gitignore`), `MANIFEST.json`
-  versionado; PDF do artigo fica de fora (untracked).
+- **Fase 4:** commitada (`d892ab3` — `extract_features.py`,
+  `validate_features.py`, `feature_model.md`, limiares/MANIFEST) — pushada.
+- **Fase 5:** commitada (`edbd32c` — IDS + avaliação + docs) e `bc80bc6`
+  (`.gitignore` do PDF do artigo) — **pushadas para `origin/main`**
+  (`main == origin/main == bc80bc6`, fast-forward, sem rewrite de história).
+- **Working tree:** o `E1b` (Parte VI §6.5) acrescenta `--learn-holdout` a
+  `extract_features.py`, o comparador `experiment_e1b_report.py` e
+  `results/exp_E1b/` — commit **local**, sem push. `datasets/**.pcap|.csv` e
+  `features/*.csv` ficam de fora do git (`.gitignore`), `MANIFEST.json` é
+  versionado; o PDF do artigo fica de fora (untracked, ignorado).
 
 ### Comandos
 
@@ -407,4 +553,13 @@ python3 tools/validate_dataset.py datasets/normal/normal_nepc.pcap \
 ./scripts/gen_attack_dataset.sh ANEc-a1 [--scale 0.10]  # Fase 3: ataque
 python3 tools/validate_dataset.py --attack --dataset ANEc-a1 --scale 1.0 \
     --attacker-mac <MAC_do_ecu6> datasets/attack/ANEc-a1.pcap   # à mão
+
+python3 tools/extract_features.py                        # Fase 4: features
+python3 tools/extract_features.py --learn-holdout 0.3    # Fase 4: E1b (70 %)
+python3 tools/validate_features.py                       # Fase 4: validação
+
+python3 tools/evaluate_ids.py \                          # Fase 5: avaliação
+    --features-dir features --identity ip --holdout 0.3 \
+    --retro-window 3 --results-dir results/baseline_v3/ip \
+    --out results/baseline_v3/ip/report.json
 ```

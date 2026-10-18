@@ -258,22 +258,44 @@ def fmt(col, val):
     return str(val)
 
 
-def learn_thresholds(csv_paths):
-    """Passo 1: coleta dTs nos NORMAIS e devolve anchors por (svc|tipo)."""
+def _count_rows(path):
+    """Numero de linhas de dados (sem cabecalho)."""
+    with open(path, newline="") as fh:
+        return sum(1 for _ in fh) - 1
+
+
+def learn_thresholds(csv_paths, holdout=0.0):
+    """Passo 1: coleta dTs nos NORMAIS e devolve anchors por (svc|tipo).
+
+    E1b: com `holdout > 0` os limiares sao aprendidos SO nos primeiros
+    (1 - holdout) de cada CSV normal -- o mesmo corte temporal do treino de E1
+    (`evaluate_ids.py --holdout`). Por omissao (0.0) usa 100% dos normais, como
+    a Fase 4 original.
+    """
     collect = {"dt_prev_req": defaultdict(list), "dt_prev_res": defaultdict(list)}
+    learned_rows = {}
     for path in csv_paths:
+        total = _count_rows(path)
+        cut = int(total * (1.0 - holdout)) if holdout > 0 else total
         ex = Extractor(collect=collect)
         with open(path, newline="") as fh:
-            for row in csv.DictReader(fh):
+            for i, row in enumerate(csv.DictReader(fh)):
+                if i >= cut:
+                    break
                 ex.process(row)
-        print(f"[learn] {path.name}: {sum(len(v) for v in collect['dt_prev_req'].values())} "
-              f"dT_req / {sum(len(v) for v in collect['dt_prev_res'].values())} dT_res "
-              f"acumulados", file=sys.stderr)
+        learned_rows[path.name] = {"rows_total": total, "rows_learned": cut}
+        print(f"[learn] {path.name}: {cut}/{total} linhas"
+              + (f" (holdout={holdout})" if holdout > 0 else "")
+              + f" | dT_req={sum(len(v) for v in collect['dt_prev_req'].values())} "
+              f"dT_res={sum(len(v) for v in collect['dt_prev_res'].values())}",
+              file=sys.stderr)
 
     thresholds = {"window_w": WINDOW_W,
                   "method": ("anchors (min, mediana, max) sobre dTs dos datasets "
                              "NORMAIS; limites = pontos medios entre anchors"),
                   "learned_on": [p.name for p in csv_paths],
+                  "learn_holdout": holdout,
+                  "learned_rows": learned_rows,
                   "dt_prev_req": {}, "dt_prev_res": {}}
     for feat in ("dt_prev_req", "dt_prev_res"):
         for key, vals in sorted(collect[feat].items()):
@@ -320,6 +342,9 @@ def main():
                     help="processa so estes datasets (stem do CSV); repetivel")
     ap.add_argument("--thresholds", default=None, metavar="PATH",
                     help="reusa limiares deste JSON (pula o aprendizado)")
+    ap.add_argument("--learn-holdout", type=float, default=0.0, metavar="FRAC",
+                    help="E1b: aprender os limiares de discretizacao SO nos "
+                         "primeiros (1-FRAC) de cada normal (0.3 = treino de E1)")
     ap.add_argument("--learn-only", action="store_true",
                     help="so aprende e grava thresholds.json, nao extrai")
     args = ap.parse_args()
@@ -348,9 +373,10 @@ def main():
         thresholds = json.loads(Path(args.thresholds).read_text())
         print(f"[thresholds] reutilizados de {args.thresholds}", file=sys.stderr)
     else:
-        print(f"[learn] aprendendo limiares em {len(normal_csvs)} dataset(s) normal(is)",
-              file=sys.stderr)
-        thresholds = learn_thresholds(normal_csvs)
+        print(f"[learn] aprendendo limiares em {len(normal_csvs)} dataset(s) normal(is)"
+              + (f" -- so os primeiros {1 - args.learn_holdout:.0%}"
+                 if args.learn_holdout > 0 else ""), file=sys.stderr)
+        thresholds = learn_thresholds(normal_csvs, holdout=args.learn_holdout)
         (out_dir / "thresholds.json").write_text(
             json.dumps(thresholds, indent=2, ensure_ascii=False) + "\n")
         print(f"[thresholds] gravados em {out_dir / 'thresholds.json'}", file=sys.stderr)
