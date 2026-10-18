@@ -204,3 +204,125 @@ Decisions recorded **before** training (Fase 5). Machine-readable copy:
 | 3 | ARR-Res-a1 signal depends on attacker response delay (100ms -> 8ms); a timing-matched attacker would collapse the `dt` flags (payload-identical `dp_cat` = 0% vs 66% would remain) | Report both in Fase 5 evaluation; do not claim timing-independent detection |
 | 4 | `SD:Find` has a single startup packet per capture -> no thresholds, empty bins | Accept empty bin (NA) |
 | 5 | Forward gaps are benign in shared-counter streams (baseline: 1-3% of 0x1234/0x1235 REQ/RESP rows in NEpc/NEc) | Compare against the learned per-key normal baseline, never against an ideal 0% |
+
+## 7. E3 - per-signal payload state (Fase 5 extension)
+
+Motivation: with the V-C 2 window (see `ids_model.md` sec. 10, `baseline_v3`),
+the final TPR depends on the **direct** Algorithm-1 detection, which is only
+~2.9% of attack packets in the frozen baseline. The signals lost are concentrated
+in the payload-identical attacks (ANEpc/ANEc, `dp_*` = 0). Section 2 above only
+discretizes **timing/order** (Tabela IV); E3 extends the state tuple with the
+**per-signal payload state** so that a notification whose CAN-style signals are
+out of their learned behaviour becomes a new state.
+
+Where: implemented in Fase 5 (`tools/ids_realtime.py`, `--payload-state`),
+decoding `payload_hex` (already a column of `features/*.csv`, section 2) - **no
+Fase 4 re-run and no new column**. Only `payload_bands` are learned, and only
+from the training normals (like every other threshold).
+
+### 7.1 Signals per packet kind (bit ranges: `payload_model.md` sec. 1-2)
+
+| Packet kind (key) | Signals (`name`, nature) |
+|---|---|
+| `NOTIFICATION` (16 B) | `speed` u16 cont, `steer` i16 cont, `gear` enum (byte 4, low nibble), `brake` enum (byte 5 bit 0), `acc` enum (byte 6 bits 3-5), `turn` enum (byte 7 bits 2-4) |
+| `0x1234\|REQUEST` (ECHO, 16 B) | `seq` u32 cont (bytes 0-3) |
+| `SETMODE\|REQUEST` (2 B) | `mode` enum (byte 0) |
+| `RESPONSE` (4 B) | `echo` enum (byte 0), `mode` enum (byte 1) |
+| SD (`0xFFFF\|SD:*`) | none (no signal payload -> tuple unchanged) |
+
+### 7.2 State components
+
+For each signal of the packet's kind, **two** components are appended to the
+7 base components of section 2 (Tabela IV):
+
+- **continuo** (`speed`, `steer`, `seq`): `name:changed` in `{0,1,NA}`
+  (1 = value differs from the previous packet of the same `stream_key`) and
+  `name:band` in `{low, mid, high}`. Bands are the **terciles** of the signal
+  values observed in the training normals (one `[b1,b2]` per signal *name*,
+  stored in the model as `payload_bands`).
+- **enumerado** (`gear`, `brake`, `acc`, `turn`, `mode`, `echo`): `name=value`
+  and `name=prev>value` (value transition within the `stream_key`).
+
+The previous-packet values are tracked per `stream_key`; on the first packet of
+the holdout region the transitions are `NA` (the prefix discarded by the E1
+`row_filter` is scanned first to seed them, so only the true first packet of a
+capture is `NA`).
+
+### 7.3 Cost and consequence (measured, `results/exp_E3`)
+
+The payload components multiply the reachable states: on the training normals
+the number of distinct states per key goes from 130 (baseline) to 16 229 (E3);
+`0x1235|NOTIFICATION` alone goes from 15 to 8 090. This is the intended effect
+(payload-identity attacks now differ from the normals) but it also inflates the
+Algorithm-1 false positives, since rare payload states are under-sampled. The
+measured TPR/FPR (direct, Algorithm 1, final, by category) and the FP
+classification (D1a-style) are in `ids_model.md` sec. 10.
+
+Reproduction:
+
+```bash
+python3 tools/ids_realtime.py train --payload-state --identity ip \
+    --model results/exp_E3/payload_model_100_use_ip.json          # D1a reference
+python3 tools/evaluate_ids.py --identity ip --holdout 0.3 --retro-window 3 \
+    --payload-state --results-dir results/exp_E3/ip \
+    --out results/exp_E3/ip/report.json
+```
+
+### 7.4 E3b -- exclusao de contadores / identificadores monotonos
+
+O E3 (§7.2) tratava o `seq` do ECHO como sinal **continuo** e aprendia a sua
+faixa por tercis **globais**. Como o ECHO e' um contador monotonico
+(captura-relativo), a "faixa" nao e' uma propriedade de comportamento: o mesmo
+estado do servidor cai em `seq:low`/`seq:mid`/`seq:high` consoante a posicao no
+tempo. Isto gerou o grupo dominante de falsos positivos do E3 (§10.2 do
+`ids_model.md`): `0x1234|REQUEST`, `...|seq:1|seq:high`, n = 12 754 (87,5 %).
+
+E3b retira do estado de payload os sinais que sao **so' numeracao** (nao
+transportam estado fisico/enumerado do servico). Implementacao:
+`--payload-exclude SINAL` em `tools/ids_realtime.py`/`tools/evaluate_ids.py`
+(o conjunto fica gravado no modelo em `payload_exclude`; o `prev` continua a ser
+mantido para os restantes sinais da mesma stream).
+
+Campos de `payload_model.md` **excluidos** em E3b:
+
+| sinal | local (payload) | porque e' excluido |
+|---|---|---|
+| `seq` | `0x1234\|REQUEST` (ECHO), bytes 0-3 (u32) | contador monotonico: e' numeracao de sequencia da stream, sem significado de estado; a sua faixa e' posicional (tercil global) e nao comportamental |
+
+Nenhum outro sinal e' excluido, e por uma razao verifica-se para cada um:
+
+- `speed`, `steer` (`NOTIFICATION`) -- sinais **continuos** fisicos (senoides de
+  velocidade/direcao), nao numeracao; mantidos.
+- `gear`, `brake`, `acc`, `turn` -- **enumerados** de estado (posicao de caixa,
+  travagem, aceleracao, pisca); ciclicos/agrupados, nao monotonos; mantidos.
+- `mode` (`SETMODE|REQUEST`) e `echo`/`mode` (`RESPONSE`) -- indices de modo que
+  **circulam** A>B>C>D>A (wraparound), nao uma sequencia monotonica; mantidos.
+  (`echo` e' o eco do `mode` pedido -- informacao dependente do `mode`, nao um
+  contador.)
+- O `session_id` do cabecalho SOME/IP **e'** um contador monotonico, mas nao e'
+  um campo do payload: ja entra na tupla base como `os` (§2), que apenas usa a
+  **ordem** (`prev+1`), nao a magnitude -- por isso nao sofre do defeito de
+  tercil. Nao e' tocado pelo E3b.
+
+Efeito: a chave `0x1234|REQUEST` volta a ter os 7 componentes base (o `seq`
+deixa de gerar componentes), e `payload_bands` deixa de conter `seq`. Resultado
+medido (FP por classe, TPR/FPR, por sinal) em `ids_model.md` sec. 10.3.
+
+Reproducao (isolada, sobre `baseline_v3`):
+
+```bash
+python3 tools/ids_realtime.py train --normal normal_rr --normal normal_nepc \
+    --normal normal_nec --payload-state --payload-exclude seq --identity ip \
+    --model results/exp_E3b/payload_model_100_use_ip.json
+python3 tools/evaluate_ids.py --identity ip --holdout 0.3 --retro-window 3 \
+    --payload-state --payload-exclude seq --results-dir results/exp_E3b/ip \
+    --out results/exp_E3b/ip/report.json
+python3 tools/diagnose_ids.py --results-dir results/exp_E3b/ip \
+    --model-100 results/exp_E3b/payload_model_100_use_ip.json \
+    --out results/exp_E3b/diagnose.json
+python3 tools/experiment_e3b_report.py --results-dir results/exp_E3b/ip \
+    --model-100 results/exp_E3b/payload_model_100_use_ip.json \
+    --out results/exp_E3b/per_signal.json
+```
+
+
