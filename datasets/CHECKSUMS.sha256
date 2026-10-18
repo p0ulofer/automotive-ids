@@ -1,0 +1,36 @@
+# datasets/CHECKSUMS.sha256 -- impressao digital dos datasets (pcap + CSV) em disco.
+# Verificacao: tools/check_checksums.sh   (correr ANTES da Fase 4/5).
+#
+# Regenerado apos a substituicao acidental do ARR-Req-a1 pelo run de 10% (ver
+# docs/relatorio_fase5.md, seccao 3.6). O ARR-Req-a1 em disco corresponde a run
+# regenerada a scale 1.0 (3276 datagramas / 3277 linhas), e NAO a execucao
+# congelada (3272) registada em datasets/attack/MANIFEST.json.
+#
+4504a13f818fa3e06dfc77e7944829610dba984c0c8118b6bd789a09c4784f70  datasets/attack/ANEc-a1.csv
+0da2acb9ef6a6791ab08f2cfb199a6edf86ae55d4968dd8266064b36fcf55d49  datasets/attack/ANEc-a1.pcap
+15699486ee3084b84fb707ce9cef49fe2b951ad83b09e8f686e2211665a4a0df  datasets/attack/ANEpc-a1.csv
+341e1048bb24af9775174cbe5791b3af458ea4bcbb99c417d61dda79b6f35393  datasets/attack/ANEpc-a1.pcap
+64a6970370b4ad04d3e85b8529db67e044ae009aca53f183d0b45addc2361854  datasets/attack/ANEpc-a2.csv
+c59baeca42ae5c0fd41be4954c263c918d2a0c255b794ec87f78e3e8db389c02  datasets/attack/ANEpc-a2.pcap
+b721f030154a66d7a5c0f6ee5fc07aea7e3081479f5eb05904a13b34da8b449e  datasets/attack/ANEpc-a3.csv
+a36aeb8d1091462457f70f00199beca1015c437b0f8d0068bf464a5e4a891bb8  datasets/attack/ANEpc-a3.pcap
+beaf4156dc99f95ad4d6f1ecc6a87bc7930a29efcfb5c379e79585f7a88589aa  datasets/attack/ANEpc-a4.csv
+1cf949342f04882a65db2bf0055fa33171ad02915685a5940efad536c740fde3  datasets/attack/ANEpc-a4.pcap
+55344fea92f455219d0a9fa5d150ee236b80bba31d1ba80cdbcad2f08795ff58  datasets/attack/ANEpc-a5.csv
+677ffb755a1a240aa61d5c03cd3e11a9695a96c3deb3fafeb7c84380015b3a61  datasets/attack/ANEpc-a5.pcap
+df88fdf2496d256e4eb1ece843503dd6ece949e945cafceae250801058b86493  datasets/attack/ANEpc-a6.csv
+0743c22d98878ff747a0b3279aee02de91f0ab6a3f565651fd424990e6462825  datasets/attack/ANEpc-a6.pcap
+c47ab9a738ff14c73b4fb65a1ff886a51fea6cbd2d2ac8f6b5b55284fb8272db  datasets/attack/ANEpc-a7.csv
+da3a9c6d792704e826241a1b51d661e44061c7cc5e516b52fdf8ce8e09dd7e3f  datasets/attack/ANEpc-a7.pcap
+e0c6593ba3a57e4b9f8c72834514ad5edf6b5ea96dc1478dbb9a925484c402bf  datasets/attack/ANEpc-a8.csv
+c84b17f9738430b109db2c3d953beb8a5631bebe1e7d3fec8bafd6970c4f2af0  datasets/attack/ANEpc-a8.pcap
+07e05c179aefcb340c176c4dc065e96c19012428040e35ab375275a4ddc09303  datasets/attack/ARR-Req-a1.csv
+17669144e8326f5e0c5aec4e898becc056d96a09f96ade0fb6c63796d234143f  datasets/attack/ARR-Req-a1.pcap
+f8682d8e2fc59a227d7b98f82b5a8acfac49760cb435f2965f2b364a7de1d031  datasets/attack/ARR-Res-a1.csv
+faadf615f7ebf10c80f044eb550c59851b907827c598d7ef1e093c383f0f3fc5  datasets/attack/ARR-Res-a1.pcap
+1989c63202204b2d10674d5bde1ab927d06446779c0cba2b93be4d576512adfe  datasets/normal/normal_nec.csv
+24051ee59f13f7281be8a490b05353a0f1d108f7da9526e7a7cc3e71d64b2401  datasets/normal/normal_nec.pcap
+6eb1a5db054ef18d6b558a76d173b2941fc3c06a68943b30e3ffc32ad3d588f2  datasets/normal/normal_nepc.csv
+1d55ed4a51ced620c278ae77873dd772fc7a70b139a2f5303df2c48be26506ca  datasets/normal/normal_nepc.pcap
+b0e0c6fcf5ee389ca813352839aada7d0d2662465671f48d10fcfe56de701453  datasets/normal/normal_rr.csv
+155b9d6990c0e5800a9aafa67bf8c70fd539ea7ba651a64b037897cf8607ce14  datasets/normal/normal_rr.pcap

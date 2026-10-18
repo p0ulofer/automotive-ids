@@ -55,6 +55,19 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$DATASET" ]] || die "uso: gen_dataset.sh <normal_rr|normal_nepc|normal_nec> [--scale 0.05]"
 
+# --- protecao contra sobrescrita do dataset completo -------------------------
+# O dataset completo (scale 1.0) e' o que alimenta as Fases 4/5. Runs reduzidos
+# (--scale != 1) servem so' para iterar: gravam em <nome>_scale<N>.pcap|.csv e
+# NAO tocam no MANIFEST canonico (datasets/normal/MANIFEST.json).
+if [[ "$SCALE" != "1" && "$SCALE" != "1.0" ]]; then
+    DATASET_ID="${DATASET}_scale${SCALE}"
+    MANIFEST_ARGS=()
+    warn "scale=$SCALE != 1 -> dataset reduzido '${DATASET_ID}' (NAO sobrescreve '${DATASET}')"
+else
+    DATASET_ID="$DATASET"
+    MANIFEST_ARGS=(--update-manifest)
+fi
+
 CONFIG_YAML="$ROOT/config/datasets/${DATASET}.yaml"
 [[ -f "$CONFIG_YAML" ]] || die "config nao encontrada: $CONFIG_YAML"
 
@@ -180,7 +193,7 @@ EXP=$(expected_raw)
 warn "regressao DEPOIS do run: $RAW OK"
 
 # --- 6. merge + dedup --------------------------------------------------------
-OUT_PCAP="$ROOT/datasets/normal/${DATASET}.pcap"
+OUT_PCAP="$ROOT/datasets/normal/${DATASET_ID}.pcap"
 warn "merge + dedup -> $OUT_PCAP"
 MERGE_OUT=$(python3 "$ROOT/tools/merge_captures.py" "$OUT_PCAP" \
     "$ROOT/pcaps/ds/ecu1_eth0.pcap" \
@@ -204,16 +217,20 @@ warn "validacao..."
 VALID=0
 python3 "$ROOT/tools/validate_dataset.py" "$OUT_PCAP" \
     --dataset "$DATASET" --scale "$SCALE" --removed-dups "$DUPS" \
-    --update-manifest || VALID=1
+    "${MANIFEST_ARGS[@]}" || VALID=1
 
 # --- 9. resumo ---------------------------------------------------------------
 SZ=$(du -h "$OUT_PCAP" | cut -f1)
-warn "=== RESUMO $DATASET ==="
-warn "  ficheiro : datasets/normal/${DATASET}.pcap ($SZ)"
+warn "=== RESUMO ${DATASET_ID} ==="
+warn "  ficheiro : datasets/normal/${DATASET_ID}.pcap ($SZ)"
 warn "  duracao  : ${DURATION}s (scale=$SCALE, full=${DURATION_FULL}s)"
 warn "  seed     : $SEED  p_ng=$P_NG  cycle=${CYCLE_MS}ms  notify=${NOTIFY_MS}ms"
 warn "  dups removidas: $DUPS"
-warn "  artefactos: datasets/normal/MANIFEST.json, ${OUT_PCAP%.pcap}.csv"
+if [[ "$DATASET_ID" == "$DATASET" ]]; then
+    warn "  artefactos: datasets/normal/MANIFEST.json, ${OUT_PCAP%.pcap}.csv"
+else
+    warn "  artefactos: ${OUT_PCAP%.pcap}.csv (reduzido; MANIFEST NAO tocado)"
+fi
 warn "  regressao : ACCEPT/DROP = $RAW"
 if [[ "$VALID" -ne 0 ]]; then
     warn "  validacao: FALHA (ver saida acima)"

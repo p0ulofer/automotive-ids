@@ -232,14 +232,35 @@ honesta: reaprendê-los **só nos primeiros 70 %** de cada normal
 (`extract_features.py --learn-holdout 0.3` → `features_e1b/`). Tudo o resto é
 igual (`T = 3 s`, sem payload, E1 + sem MAC).
 
-**Ressalva de isolamento.** O `ARR-Req-a1` foi regenerado a escala 1.0 (a
-captura de entrada tinha sido substituída por um *smoke run* a 10 %), pelo que
-a coluna congelada `baseline_v3` e a coluna `E1b` **não** partilham o mesmo
-`ARR-Req-a1`. Para separar o efeito, correu-se um **Control** (limiares 100 %)
-sobre os dados atuais: o Control é **idêntico ao `baseline_v3` em 13 dos 14
-datasets** (só `ARR-Req-a1` difere), o que valida a reprodução e mostra que a
-diferença `baseline_v3 → Control` é exclusivamente do dataset regenerado. A
-comparação **limpa do efeito dos limiares é `E1b` vs `Control`**.
+**Ressalva de isolamento e de reprodutibilidade.** O `ARR-Req-a1` foi regenerado
+a escala 1.0 (a captura em disco tinha sido substituída por um *smoke run* a
+10 %), pelo que a coluna congelada `baseline_v3` e a coluna `E1b` **não**
+partilham o mesmo `ARR-Req-a1`. Para separar o efeito, correu-se um **Control**
+(limiares 100 %) sobre os dados atuais: o Control é **idêntico ao `baseline_v3`
+em 13 dos 14 datasets** (só `ARR-Req-a1` difere), o que valida a reprodução e
+mostra que a diferença `baseline_v3 → Control` é exclusivamente do dataset
+regenerado. A comparação **limpa do efeito dos limiares é `E1b` vs `Control`**.
+
+A divergência em `ARR-Req-a1` tem duas componentes distintas:
+
+- **Contagem (documental).** O `MANIFEST.json` **versionado** documenta a execução
+  congelada que os `baseline_v*` usaram: 3 272 datagramas (738 de anomalia). A run
+  regenerada em disco tem 3 276 datagramas (3 277 linhas de CSV; anomalia 738,
+  idêntica). Decidiu-se **não** commitar o MANIFEST regenerado — o versionado é o
+  registo da execução congelada. Como o `train()` só consulta o MANIFEST para
+  `exclusions.os_feature` (streams `0x1235|NOTIFICATION|192.168.2.4` e
+  `0x1236|NOTIFICATION|192.168.2.4`), a contagem desatualizada **não tem efeito
+  funcional**. O `datasets/CHECKSUMS.sha256` (novo, §5) fixa agora o hash dos
+  ficheiros em disco — a versão de 3 276.
+- **Métrica (sensibilidade run-to-run).** As duas gerações de `ARR-Req-a1` a
+  escala 1.0 — mesmo cenário e mesma sequência de ataque — **não** são idênticas:
+  a captura é `tcpdump` sobre tráfego Docker em tempo real, logo as marcas
+  temporais variam. Efeito medido em `ARR-Req-a1`: transições detetadas 498
+  (congelada) vs 447 (regenerada); TPR final (micro) 0,9477 vs 0,9431 em `ip`
+  (0,4866 vs 0,4828 em `ip_client`). Isto é uma **observação de sensibilidade a
+  run-to-run** (n = 2, sem repetição controlada), **não** um intervalo de
+  confiança: fixa a ordem de grandeza da variabilidade entre runs, não os seus
+  limites.
 
 `ip`:
 
@@ -280,7 +301,9 @@ Por categoria (`Control | E1b`; FPR final):
   bins — os verdadeiros-positivos vêm quase todos do Algoritmo 2 (contágio).
 - **Melhora o A1:** menos FP no holdout dos normais (87 → 63 nos dois) e FPR
   nos 3 normais isolados mais baixa (0,0546 → 0,0444 em `ip`; 0,0030 → 0,0005 em
-  `ip_client`) — o valor de `ip` fica **mais perto do alvo do artigo** (~0,052).
+  `ip_client`). A proximidade de 0,0444 com o 0,052 do artigo é **coincidência
+  de medição**, não paridade: a FPR tem duas leituras (§1) e a do `ip` nos
+  normais dentro dos ataques **piora** (0,2137 → 0,2405).
 - **Piora** a FPR dos normais capturados **dentro dos datasets de ataque**
   (0,2137 → 0,2405 em `ip`; 0,1379 → 0,1647 em `ip_client`), puxada pelo
   **ANEpc** (0,1652 → 0,2034 / 0,1032 → 0,1414). Motivo: os limiares E1b, ao

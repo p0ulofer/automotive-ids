@@ -73,6 +73,19 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$DATASET" ]] || die "uso: gen_attack_dataset.sh <ARR-Req-a1|...> [--scale 0.05]"
 
+# --- protecao contra sobrescrita do dataset completo -------------------------
+# O dataset completo (scale 1.0) e' o que alimenta as Fases 4/5. Runs reduzidos
+# (--scale != 1) servem so' para iterar: gravam em <id>_scale<N>.pcap|.csv e NAO
+# tocam no MANIFEST canonico (datasets/attack/MANIFEST.json).
+if [[ "$SCALE" != "1" && "$SCALE" != "1.0" ]]; then
+    DATASET_ID="${DATASET}_scale${SCALE}"
+    MANIFEST_ARGS=()
+    warn "scale=$SCALE != 1 -> dataset reduzido '${DATASET_ID}' (NAO sobrescreve '${DATASET}')"
+else
+    DATASET_ID="$DATASET"
+    MANIFEST_ARGS=(--update-manifest)
+fi
+
 CONFIG_YAML="$ROOT/config/datasets/attack/${DATASET}.yaml"
 [[ -f "$CONFIG_YAML" ]] || die "config nao encontrada: $CONFIG_YAML"
 
@@ -327,7 +340,7 @@ warn "regressao DEPOIS do run: $RAW OK"
 # net1 (ecu1, ecu2_eth0) mostra os pacotes COM o src MAC do atacante antes de
 # o ecu2 os re-encapsular ao rotear; o merge mantem a primeira vista de cada
 # chave.
-OUT_PCAP="$ROOT/datasets/attack/${DATASET}.pcap"
+OUT_PCAP="$ROOT/datasets/attack/${DATASET_ID}.pcap"
 warn "merge + dedup -> $OUT_PCAP"
 MERGE_OUT=$(python3 "$ROOT/tools/merge_captures.py" "$OUT_PCAP" \
     "$ROOT/pcaps/ds/ecu1_eth0.pcap" \
@@ -351,18 +364,22 @@ warn "validacao (modo ataque)..."
 VALID=0
 python3 "$ROOT/tools/validate_dataset.py" "$OUT_PCAP" \
     --dataset "$DATASET" --scale "$SCALE" --removed-dups "$DUPS" \
-    --attack --attacker-mac "$MAC6" --update-manifest || VALID=1
+    --attack --attacker-mac "$MAC6" "${MANIFEST_ARGS[@]}" || VALID=1
 
 # --- 12. resumo --------------------------------------------------------------
 SZ=$(du -h "$OUT_PCAP" | cut -f1)
-warn "=== RESUMO $DATASET ==="
-warn "  ficheiro : datasets/attack/${DATASET}.pcap ($SZ)"
+warn "=== RESUMO ${DATASET_ID} ==="
+warn "  ficheiro : datasets/attack/${DATASET_ID}.pcap ($SZ)"
 warn "  duracao  : ${DURATION}s (scale=$SCALE, full=${DURATION_FULL}s)"
 warn "  seed     : $SEED  cycle=${CYCLE_MS}ms  notify=${NOTIFY_MS}ms"
 warn "  attacker : $MAC6  args: $ATTACKER_ARGS"
 warn "  stats    : logs/ds/${DATASET}_attacker_stats.json"
 warn "  dups removidas: $DUPS"
-warn "  artefactos: datasets/attack/MANIFEST.json, ${OUT_PCAP%.pcap}.csv"
+if [[ "$DATASET_ID" == "$DATASET" ]]; then
+    warn "  artefactos: datasets/attack/MANIFEST.json, ${OUT_PCAP%.pcap}.csv"
+else
+    warn "  artefactos: ${OUT_PCAP%.pcap}.csv (reduzido; MANIFEST NAO tocado)"
+fi
 warn "  regressao : ACCEPT/DROP = $RAW"
 if [[ "$VALID" -ne 0 ]]; then
     warn "  validacao: FALHA (ver saida acima)"
