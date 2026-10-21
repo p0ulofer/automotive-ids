@@ -464,7 +464,7 @@ Resumo do trade-off:
 | descarga do retro | só no fim do stream | contínua (71 996 de 76 750 linhas) |
 | V-C 1+3 em streams que nunca ficam inactivos | nunca dispara | passa a poder disparar (como o EOF faria) |
 
-### 6.5 Porque o replay real (ao vivo) é um passo seguinte
+### 6.5 Porque o replay real (ao vivo) é um passo seguinte — **feito, ver §8**
 
 O teste acima isola a **lógica** (o que é que se classifica). O replay pela rede
 (`sendp`/`tcpreplay` + `--interface`) acrescenta uma variável nova, o **jitter de
@@ -472,7 +472,9 @@ agendamento**: os `dt_prev_*` são medidos no relógio de captura e oscilam à
 volta dos microssegundos. Como as features são *discretizadas* (`b1`, `b2`), um
 `dt` a um microssegundo do limite pode cair no bin errado. Esse teste não pode
 dar 0/0 por construção — a métrica passa a ser "quantas linhas divergem e porquê".
-Ver §8.
+
+É o que o **Estágio B** (§8) mede: 10 linhas de `state` divergentes em 4 135
+(0,24 %), 3 alertas extra e 314 linhas reclassificadas pelo Algoritmo 2.
 
 ---
 
@@ -554,7 +556,118 @@ Saídas em `--out-dir`: `realtime_<nome>.csv`, `retro_<nome>.csv` e
 
 ---
 
-## 8. Estado da validação
+## 8. Estágio B — replay ao vivo pela rede (jitter)
+
+O Estágio A prova a **equivalência** (replay determinístico, 0/0). O Estágio B
+mede o que acontece quando o tráfego passa por uma **stack de rede real**:
+os timestamps são os de *captura*, não os do dataset, e o jitter de
+agendamento entra nas features.
+
+### 8.1 Montagem
+
+```
+emissor  -- reenvia o pcap com o TEMPORISMO ORIGINAL (socket AF_PACKET,
+            sleeping até ao instante previsto de cada pacote)
+   |  veth directo (eth9)  -- sem a stack IP do host no caminho
+receptor  -- tools/ids_live.py --interface eth9   (o IDS em modo online)
+```
+
+```bash
+./scripts/stage_b_live_replay.sh ANEpc-a1     # ou ARR-Res-a1, ANEc-a1, ...
+```
+
+O script cria dois contentores, liga-os por um par **veth** (o mesmo kernel, o
+mesmo caminho de RX), reenvia o pcap e depois corre
+`tools/compare_live_replay.py`, que confronta o resultado com o `baseline_v3`.
+
+**Duas armadilhas do teste ao vivo** (encontradas e documentadas aqui porque
+mascariam o resultado):
+
+1. **O host reencaminha as tramas** (`net.ipv4.ip_forward=1`): as tramas cujo IP
+   de destino está na sub-rede da bridge voltam a entrar no contentor — o
+   receptor via **cada trama duas vezes** (3060 mensagens extra em
+   `ANEpc-a1`). Daí o link veth directo: a stack IP do host fica fora do
+   caminho.
+2. **Os timestamps do pcap estão no passado** (o dataset é de October): o replay
+   tem de rebasear a linha temporal (`t0 + (ts − ts_início)`), senão envia
+   tudo de seguida, sem qualquer cadência.
+
+### 8.2 Resultado (`ANEpc-a1`, 4 135 mensagens, 21 s)
+
+| grandeza | valor |
+|---|---|
+| jitter do emissor (real − previsto) | mediana 0,000 ms · p95 0,585 ms · máx 18,2 ms |
+| deriva da linha temporal no receptor (relativa) | mediana 0,260 ms |
+| jitter no receptor (variação do atraso) | mediana **0,082 ms** · p95 **0,527 ms** · máx 18,0 ms |
+| `dt_prev_res` diferente do congelado | 4 109 / 4 126 linhas (mediana **0,096 ms**, p95 0,617 ms, máx 17,9 ms) |
+| `dt_prev_res_bin` / `dt_prev_req_bin` mudados | **1** / **9** linhas |
+
+E o efeito na classificação:
+
+| camada | divergência | Baseline → ao vivo |
+|---|---|---|
+| Algoritmo 1 — `state` (tupla discretizada) | **10** linhas (0,24 %) | — |
+| Algoritmo 1 — `in_model` | **3** linhas | 26 → 29 alertas |
+| Algoritmo 2 — `final_anomaly` | **314** linhas (7,6 %) | — |
+| métricas | TPR **1,000 → 1,000** | FPR **0,123 → 0,254** |
+
+**Mecanismo (verificado):** o jitter de ~0,1 ms medido pelo receptor muda o
+`dt_prev_res`; em 10 linhas esse valor cruza um limiar de discretização e o
+`state` muda; em 3 dessas linhas a transição deixa de existir no modelo
+(`in_model = 0`) e nasce um **alerta extra** (26 → 29). O Algoritmo 2 amplifica:
+cada hit novo contamina a janela de T = 3 s da sessão → **314 linhas** mudam de
+veredito. Como as 3 linhas afetadas são de tráfego normal, a FPR sobe de
+0,123 para 0,254 (a TPR não muda — o ataque continua 100 % detectado).
+
+**Segundo dataset (reprodutibilidade)** — `ARR-Res-a1` (3 310 mensagens, 154 s,
+mesma montagem):
+
+| grandeza | `ANEpc-a1` | `ARR-Res-a1` |
+|---|---|---|
+| jitter de captura (mediana / p95 / máx) | 0,082 / 0,527 / 18,0 ms | 0,114 / 0,375 / 28,9 ms |
+| `dt_prev_res` diferente (mediana) | 0,096 ms | 0,067 ms |
+| `state` divergente | 10 / 4 135 (0,24 %) | 2 / 3 310 (0,06 %) |
+| alertas do Algoritmo 1 | 26 → 29 | 7 → 9 |
+| linhas reclassificadas pelo V-C 2 | 314 (7,6 %) | 40 (1,2 %) |
+| TPR | 1,000 → 1,000 | 0,1356 → 0,1356 |
+| FPR | 0,123 → 0,254 | 0,052 → 0,067 |
+
+O padrão é consistente: **0,06–0,24 % das linhas mudam de estado
+discretizado**, 2–3 alertas extra, e a amplificação do V-C 2 propaga isso para
+1–8 % das linhas. A TPR **nunca** se altera (o ataque continua detectado na
+totalidade); a FPR sobe, e tanto mais quanto mais perto dos limiares de
+discretização estiver o tráfego.
+
+Conclusões do Estágio B:
+
+- o caminho ao vivo **não** é bit-idêntico ao offline, e **não deve ser**: a
+  única forma de o seria um relógio virtual, que é precisamente o que se
+  queria evitar medir;
+- a divergência é **pequena e explicada**: 0,24 % das linhas mudam de estado
+  discretizado, por causa de ~0,1 ms de jitter de captura;
+- a **amplificação do V-C 2** (já medida na Fase 5) transforma 3 alertas
+  extras em 314 linhas reclassificadas — é o factor de risco real do modo
+  online, muito maior do que o jitter em si;
+- implicação prática: as features **discretizadas** são sensíveis à escala do
+  submilissegundo, pelo que a margem operacional do modelo é da ordem de
+  0,1 ms; se a rede introduzir mais ruído (filas, CPU ocupada), a taxa de
+  alertas falsos sobe.
+
+### 8.3 Reprodução
+
+```bash
+./scripts/stage_b_live_replay.sh ANEpc-a1
+# artefatos: results/ids_live_stageB/ANEpc-a1/
+#   replay_sender.json   (jitter do emissor)
+#   ids_live.log         (log do IDS em modo online)
+#   realtime_/retro_     (saidas do IDS)
+#   features.csv         (features calculadas ao vivo)
+#   compare_ANEpc-a1.json (desvio quantificado vs baseline_v3)
+```
+
+---
+
+## 9. Estado da validação
 
 | passo | estado |
 |---|---|
@@ -571,7 +684,7 @@ Saídas em `--out-dir`: `realtime_<nome>.csv`, `retro_<nome>.csv` e
 | Libertação de memória (linhas compactas na sessão, poda de sessões, contadores O(1)) | **feito** (§5.3) |
 | Buffer de sessão **ainda aberta** limitado | **sim**, com `--session-max-age` (corte como o EOF): 240 MB → 90 MB e 71 996/76 750 linhas escritas em fluxo (§5.3). Default `0` = semântica exacta |
 | Variante `--session-max-age 60` **formalizada** no relatório | `report.json` → `session_max_age`: A1 **0 diffs** em todos; desvio do A2 na fronteira do corte (0 linhas em 4/5 datasets, **51 linhas em `ARR-Res-a1`** — mecanismo em §6.4) |
-| Replay ao vivo pela rede (`sendp`/Docker, `--interface`) + quantificação do jitter | **pendente (Estágio B)** |
+| Replay ao vivo pela rede (`sendp`/Docker, `--interface`) + quantificação do jitter | **feito (Estágio B, §8)**: jitter de captura mediana 0,082 ms · `state` diverge em 10/4 135 linhas · 3 alertas extra · 314 linhas reclassificadas pelo V-C 2 · TPR 1,000→1,000, FPR 0,123→0,254 |
 
 Relatórios máquina:
 

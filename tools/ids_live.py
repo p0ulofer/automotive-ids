@@ -150,6 +150,32 @@ def _detect_state(row, thresholds, excluded, avg_full, avg_cold_start):
     return state
 
 
+class _FeatureDumper:
+    """Escreve as linhas+features calculadas (debug/validacao), em streaming."""
+
+    def __init__(self, path):
+        self.path = path
+        self.fh = None
+        self.w = None
+        if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            self.fh = open(path, "w", newline="")
+            self.w = csv.DictWriter(self.fh,
+                                   fieldnames=CSV_FIELDS + FEATURE_COLS,
+                                   extrasaction="ignore")
+            self.w.writeheader()
+
+    def write(self, row):
+        if self.w is not None:
+            self.w.writerow(row)
+
+    def close(self):
+        if self.fh is not None:
+            self.fh.close()
+            self.fh = None
+            self.w = None
+
+
 class LiveIDS:
     """Motor online: features incrementais + Algoritmo 1 + Algoritmo 2.
 
@@ -218,6 +244,8 @@ class LiveIDS:
 
         # ultimas features calculadas (para `--dump-features`)
         self.last_feats = None
+        # dumper das features calculadas (opcional, ver `_FeatureDumper`)
+        self.feature_dumper = None
 
         # Cache de strings repetidas (label, service_id, src_ip, src_mac,
         # type_label): as linhas pendentes de uma sessao partilham os mesmos
@@ -271,6 +299,11 @@ class LiveIDS:
         idx = self.global_idx
         feats = self.extractor.process(row)
         self.last_feats = feats   # para `--dump-features` (mesmas no frio e quente)
+        if self.feature_dumper is not None:
+            fr = dict(row)
+            for col in FEATURE_COLS:
+                fr[col] = fmt(col, feats[col])
+            self.feature_dumper.write(fr)
         if idx < self.emit_from_index:
             return None
 
@@ -700,19 +733,6 @@ def _load_labels(path):
         return [row.get("label", "") for row in csv.DictReader(fh)]
 
 
-def _dump_features(engine, path, rows):
-    """Grava as linhas com features calculadas (debug/validacao)."""
-    if not path:
-        return
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=CSV_FIELDS + FEATURE_COLS,
-                           extrasaction="ignore")
-        w.writeheader()
-        for row in rows:
-            w.writerow(row)
-
-
 def _run_pcap(args, engine, root):
     """Replay deterministico: usa os timestamps ORIGINAIS do pcap.
 
@@ -722,7 +742,6 @@ def _run_pcap(args, engine, root):
     """
     from scapy.all import PcapReader
     labels = _load_labels(args.labels_csv) if args.labels_csv else None
-    feature_rows = []
     pcap_idx = -1
     with PcapReader(args.pcap) as reader:
         for pkt in reader:
@@ -731,18 +750,12 @@ def _run_pcap(args, engine, root):
                 if labels is not None and pcap_idx < len(labels):
                     row["label"] = labels[pcap_idx]
                 engine.process_row(row)
-                if args.dump_features:
-                    fr = dict(row)
-                    for col in FEATURE_COLS:
-                        fr[col] = fmt(col, engine.last_feats[col])
-                    feature_rows.append(fr)
                 engine.flush_ready(float(row["timestamp"]))
                 if args.max_packets and pcap_idx + 1 >= args.max_packets:
                     break
             if args.max_packets and pcap_idx + 1 >= args.max_packets:
                 break
     engine.finish()
-    _dump_features(engine, args.dump_features, feature_rows)
     print(f"[ids_live] replay {args.pcap}: {pcap_idx + 1} mensagens SOME/IP",
           file=sys.stderr)
 
@@ -750,8 +763,19 @@ def _run_pcap(args, engine, root):
 def _run_interface(args, engine):
     from scapy.all import AsyncSniffer
 
+    # As labels (verdade de terreno) sao OPCIONAIS e nunca sao entrada do
+    # detetor: servem so' para calcular metricas. Sao atribuidas por indice
+    # de mensagem, como no replay deterministico -- assumem que o trafego
+    # capturado e' exactamente o do dataset (ver o aviso no fim).
+    labels = _load_labels(args.labels_csv) if args.labels_csv else None
+    counter = 0
+
     def on_packet(pkt):
+        nonlocal counter
         for row in packet_to_rows(pkt):
+            if labels is not None and counter < len(labels):
+                row["label"] = labels[counter]
+            counter += 1
             engine.process_row(row)
         engine.flush_ready(float(pkt.time))
 
@@ -771,6 +795,11 @@ def _run_interface(args, engine):
         if sniffer.running:
             sniffer.stop()
     engine.finish()
+    if labels is not None and counter != len(labels):
+        print(f"[ids_live] AVISO: {counter} mensagens capturadas vs "
+              f"{len(labels)} labels no CSV -- a atribuicao por indice pode "
+              f"estar errada (o trafego capturado tem de ser o do dataset)",
+              file=sys.stderr)
 
 
 def main():
@@ -832,6 +861,7 @@ def main():
         emit_from_index=args.emit_from_index,
         alert_stream=None if args.quiet_alerts else sys.stderr,
         prefix=name)
+    engine.feature_dumper = _FeatureDumper(args.dump_features)
     print(f"[ids_live] modelo={args.model} identity={engine.identity} "
           f"avg_cold_start={engine.avg_cold_start} T={engine.retro_window}s "
           f"sessao={engine.session_timeout}s "
@@ -849,6 +879,8 @@ def main():
         _run_pcap(args, engine, root)
     else:
         _run_interface(args, engine)
+    if engine.feature_dumper is not None:
+        engine.feature_dumper.close()
 
     s = engine.summary()
     print(f"[ids_live] {s['rows']} pacotes | ataque={s['attack']} "

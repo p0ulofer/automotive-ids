@@ -947,6 +947,14 @@ execução congelada; a divergência foi **corrida e quantificada** à parte em
 `timestamp` diferentes) — ver `nota_divergencia_arrreqa1.md` e `ids_live.md`
 §6.2.
 
+**Validação ao vivo (Estágio B):** o mesmo tráfego reenviado por uma stack de
+rede real (`scripts/stage_b_live_replay.sh`) **não** é bit-idêntico — e não deve
+ser. Medido: jitter de captura mediana 0,082 ms (p95 0,527 ms) → 10 de 4 135
+linhas mudam de `state` discretizado → 3 alertas extra → **314 linhas**
+reclassificadas pelo Algoritmo 2; TPR 1,000 → 1,000, FPR 0,123 → 0,254. A
+margem operacional do modelo é, portanto, da ordem de 0,1 ms — e a amplificação
+do V-C 2 (§5.7) é o factor de risco real. Ver `ids_live.md` §8.
+
 Arquitetura, latência, cold start, limites de memória e como correr a demo:
 **[`ids_live.md`](ids_live.md)**.
 

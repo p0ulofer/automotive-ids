@@ -544,9 +544,13 @@ em [`relatorio_fase5.md`](relatorio_fase5.md) §E1b; artefatos em
       datasets; o corte **parte a janela V-C 2** na fronteira (0 linhas em 4/5
       datasets, 51 linhas em `ARR-Res-a1`, TPR 0,136→0,101) — mecanismo e
       trade-off em `ids_live.md` §6.4
-- [ ] Fase 6 (pendente) — Estágio B: replay **ao vivo** pela rede
-      (`sendp`/Docker) e quantificação do jitter
-
+- [x] Fase 6 (Estágio B) — replay **ao vivo** pela rede (2 contentores + link
+      veth, `scripts/stage_b_live_replay.sh`): jitter de captura mediana
+      0,082 ms → 10/4 135 linhas com `state` diferente → 3 alertas extra →
+      **314 linhas** reclassificadas pelo V-C 2; TPR 1,000→1,000, FPR
+      0,123→0,254. Duas armadilhas do teste documentadas (o host reencaminha
+      as tramas → cópias duplas; timestamps do pcap no passado) —
+      `ids_live.md` §8
 ### Estado do git
 
 - **Fase 1:** commitada (3 commits, pushados).
@@ -597,4 +601,5 @@ python3 tools/ids_live.py --pcap datasets/attack/ANEpc-a1.pcap \
     --out-dir results/ids_live_validation/ANEpc-a1       # replay determinístico
 python3 tools/validate_ids_live.py \                     # Fase 6: equivalência
     --normal normal_rr --normal normal_nepc
+./scripts/stage_b_live_replay.sh ANEpc-a1                # Fase 6: Estágio B
 ```
