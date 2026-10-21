@@ -236,7 +236,7 @@ Detalhe completo (incluindo a alternativa descartada
 | [`docs/attack_datasets.md`](docs/attack_datasets.md) · [`docs/attack_model.md`](docs/attack_model.md) | Fase 3 (tabela aprovada · modelo/premissas/bugs) |
 | [`docs/feature_model.md`](docs/feature_model.md) | Fase 4 (features, limiares) |
 | [`docs/ids_model.md`](docs/ids_model.md) · [`docs/relatorio_fase5.md`](docs/relatorio_fase5.md) | Fase 5 (algoritmos, protocolos · relatório final) |
-| [`docs/ids_live.md`](docs/ids_live.md) | Fase 6 (modo online: arquitetura, latência, memória, validação) |
+| [`docs/ids_live.md`](docs/ids_live.md) · [`docs/relatorio_fase6.md`](docs/relatorio_fase6.md) | Fase 6 (modo online: arquitetura, latência, memória, validação · relatório consolidado) |
 | [`docs/attacker_sd_plan.md`](docs/attacker_sd_plan.md) | R3 (atacante sem SD) — **plano, não implementado** |
 
 ---

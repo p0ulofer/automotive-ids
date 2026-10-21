@@ -250,7 +250,7 @@ exactamente isso (§6.1).
 |---|---|---|
 | caminho ao vivo (`ids_live.py`) | fila global por `idx`: uma sessão aberta/em espera no início da fila retinha **tudo** o que vinha atrás (*head-of-line blocking*) | **emissão por sessão**: cada sessão escreve as suas linhas assim que o seu veredito é definitivo; as linhas de uma sessão ficam contíguas; **sem ordem global** |
 | harness de validação (`validate_ids_live.py`) | comparava posicionalmente | **ordena as duas tabelas por `idx` antes de comparar** — é o harness que reintroduz a ordem, não o caminho ao vivo |
-| conteúdo de cada linha | — | **inalterado** (a marca é por sessão): os 5 datasets continuam a dar **0/0** |
+| conteúdo de cada linha | — | **inalterado** (a marca é por sessão): os 6 datasets continuam a dar **0/0** |
 
 ### 5.3 Memória: o que fica retido e como é limitado
 
@@ -308,9 +308,9 @@ Notas importantes:
 ### 6.1 Como se corre
 
 ```bash
-# 3 ataques (ANEpc-a1, ARR-Res-a1, ANEc-a1) + 2 normais + auto-teste do teto
+# 3 ataques (ANEpc-a1, ARR-Res-a1, ANEc-a1) + 3 normais + auto-teste do teto
 python3 tools/validate_ids_live.py \
-    --normal normal_rr --normal normal_nepc \
+    --normal normal_rr --normal normal_nepc --normal normal_nec \
     --out results/ids_live_validation/report.json
 ```
 
@@ -356,10 +356,12 @@ Excluídas do critério (metadados, contam à parte):
 | `ANEc-a1` | ataque ANE (23 s) | 5 368 | **0** | **0** | sim (TPR 0,9512 · FPR 0,6652) | 8 / 0 | **equivalente** |
 | `normal_rr` | normal, holdout 30 % (93 s) | 1 998 | **0** | **0** | sim (FPR 0,0015) | 4 / 0 | **equivalente** |
 | `normal_nepc` | normal, holdout 30 % (384 s) | 76 750 | **0** | **0** | sim (FPR 0,0039) | 6 / 0 | **equivalente** |
+| `normal_nec` | normal, holdout 30 % (2 135 s) | 496 570 | **0** | **0** | sim (FPR 0,0626) | 8 / 0 | **equivalente** |
 | *auto-teste* | teto de sessões em espera (§5.1) | — | — | — | — | 10/10 passos | **ok** |
 
 - **0 / 0** em três datasets de ataque (inclui um ARR e um ANE, como pedido) e
-  dois normais — 91 561 linhas comparadas, nenhuma divergência de classificação.
+  três normais (as três famílias: RR, NEpc, NEc) — **588 131 linhas** comparadas,
+  nenhuma divergência de classificação.
 - o `retro_*.csv` do modo online vai **por ordem de decisão** (sessão fechada),
   não por ordem global de `idx`; o comparador ordena por `idx` antes de
   comparar (§5.2). O **conteúdo** de cada linha é o do baseline — os mesmos
@@ -398,7 +400,7 @@ false`), com a semântica "linhas diferentes → só se compara o prefixo comum 
 | linhas | 3 277 (online) vs 3 272 (congelado) → `rows_equal=false` |
 | diffs estritas no prefixo comum (3 272 linhas) | **19 050** (realtime) · **21 907** (retro) |
 | colunas mais divergentes | `timestamp` 3 272/3 272 (todas), `dt_prev_res` 3 267, `state` 1 894, `stream_key` 1 617, `session_key` 1 610 |
-| causa | dataset substituído — outro pcap, outra ordem/pacotes. **Não** é divergência de código: nos 5 datasets intactos o mesmo teste dá 0/0. |
+| causa | dataset substituído — outro pcap, outra ordem/pacotes. **Não** é divergência de código: nos 6 datasets intactos o mesmo teste dá 0/0. |
 
 Os outros 13 datasets de ataque são **bit-a-bit** iguais à execução congelada;
 `ANEpc-a1` (21 s, 1 744 pacotes de ataque, TPR final 1,000) foi o escolhido por
@@ -417,15 +419,16 @@ exactamente o `row_filter` do modo offline.
 |---|---|---|---|---|
 | `normal_rr` | `src_mac` (1 998 linhas × 2 ficheiros) | `''` | MAC real | o CSV de origem da Fase 2 (`datasets/normal/normal_rr.csv`) não tem coluna MAC; o `detect` offline le `row.get("src_mac", "")`. Não afecta `identity=ip`, `state`, `cs_*` nem o retroactivo. |
 | `normal_nepc` | `src_mac` (76 750 linhas × 2 ficheiros) | `''` | MAC real | idem (`datasets/normal/normal_nepc.csv`) |
+| `normal_nec` | `src_mac` (496 570 linhas × 2 ficheiros) | `''` | MAC real | idem (`datasets/normal/normal_nec.csv`) |
 
-Quantificado: **78 748 linhas × 1 coluna de metadados × 2 ficheiros**, 0 linhas
+Quantificado: **575 318 linhas × 1 coluna de metadados × 2 ficheiros**, 0 linhas
 de classificação afectadas. Nos 3 datasets de ataque as colunas de metadados
 batem a 100 % (os seus CSVs de origem têm `src_mac` e `label`).
 
 ### 6.4 Variante de operação: `--session-max-age 60` (formalizada)
 
 O default do `ids_live.py` é `--session-max-age 0` (= sem corte = equivalência
-exacta com o `baseline_v3`, os 5/5 acima). Para quem deixa o IDS a correr
+exacta com o `baseline_v3`, os 6/6 acima). Para quem deixa o IDS a correr
 horas seguidas, a recomendação é `--session-max-age 60`, que **limita a
 memória** (§5.3). Essa variante é agora **validada com o mesmo padrão de
 evidência** dos restantes casos: `validate_ids_live.py --max-age 60` corre o
@@ -445,6 +448,7 @@ quantificadas.
 | `ANEc-a1` (23 s) | **0** | **0** | **0** | 0 | iguais | **ok** |
 | `normal_rr` (93 s) | **0** | **0** | **0** | `session_mean_dt_res` 1 998 · `session_key` 708 | iguais | **ok** |
 | `normal_nepc` (384 s) | **0** | **0** | **0** | `session_mean_dt_res` 76 750 · `session_key` 64 754 | iguais | **ok** |
+| `normal_nec` (2 135 s) | **0** | **0** | **1 926** (642 linhas) | `session_mean_dt_res` 494 162 · `session_key` 482 612 | FPR 0,0626→0,0613 | **ok**, com desvio caracterizado |
 
 **Mecanismo do desvio (verificado linha a linha):** cortar uma sessão **parte a
 janela retroactiva V-C 2**. Em `ARR-Res-a1` os hits do atacante chegam a cada
@@ -459,7 +463,7 @@ Resumo do trade-off:
 
 | | `--session-max-age 0` (default) | `--session-max-age 60` (operação longa) |
 |---|---|---|
-| equivalência com o `baseline_v3` | **exacta** (0/0 em 91 561 linhas) | não exacta: desvio do A2 na fronteira do corte (0 linhas em 4 dos 5 datasets, 51 linhas em `ARR-Res-a1`) |
+| equivalência com o `baseline_v3` | **exacta** (0/0 em 588 131 linhas) | não exacta: desvio do A2 na fronteira do corte (0 linhas em 4 dos 6 datasets, 51 linhas em `ARR-Res-a1`, 642 em `normal_nec`) |
 | memória | cresce com as sessões abertas (152 MB em `normal_nepc`) | **limitada** (90 MB; 12 003 linhas em memória) |
 | descarga do retro | só no fim do stream | contínua (71 996 de 76 750 linhas) |
 | V-C 1+3 em streams que nunca ficam inactivos | nunca dispara | passa a poder disparar (como o EOF faria) |
@@ -683,10 +687,10 @@ Conclusões do Estágio B:
 | Ordem global por `idx` no `retro_*.csv` | **não é requisito de operação** (§5.2) → emissão **por sessão** implementada; o comparador é que ordena por `idx`; conteúdo das linhas inalterado (0/0) |
 | Libertação de memória (linhas compactas na sessão, poda de sessões, contadores O(1)) | **feito** (§5.3) |
 | Buffer de sessão **ainda aberta** limitado | **sim**, com `--session-max-age` (corte como o EOF): 240 MB → 90 MB e 71 996/76 750 linhas escritas em fluxo (§5.3). Default `0` = semântica exacta |
-| Variante `--session-max-age 60` **formalizada** no relatório | `report.json` → `session_max_age`: A1 **0 diffs** em todos; desvio do A2 na fronteira do corte (0 linhas em 4/5 datasets, **51 linhas em `ARR-Res-a1`** — mecanismo em §6.4) |
+| Variante `--session-max-age 60` **formalizada** no relatório | `report.json` → `session_max_age`: A1 **0 diffs** em todos; desvio do A2 na fronteira do corte (0 linhas em 4/6 datasets, **51 linhas em `ARR-Res-a1`** e 642 em `normal_nec` — mecanismo em §6.4) |
 | Replay ao vivo pela rede (`sendp`/Docker, `--interface`) + quantificação do jitter | **feito (Estágio B, §8)**: jitter de captura mediana 0,082 ms · `state` diverge em 10/4 135 linhas · 3 alertas extra · 314 linhas reclassificadas pelo V-C 2 · TPR 1,000→1,000, FPR 0,123→0,254 |
 
 Relatórios máquina:
 
-- `results/ids_live_validation/report.json` — 5 datasets + auto-teste do teto (`ok: true`);
+- `results/ids_live_validation/report.json` — 6 datasets + variante `--session-max-age` + auto-teste do teto (`ok: true`);
 - `results/ids_live_validation/report_arrreqa1.json` — divergência documentada de `ARR-Req-a1` (`ok: false`, à propósito).

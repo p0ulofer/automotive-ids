@@ -938,9 +938,10 @@ sessão** (timeout de 10 s). Ver `ids_live.md` §3.
 congelado, pacote a pacote (`tools/validate_ids_live.py`, artefacto em
 `results/ids_live_validation/report.json`, `ok: true`): **0 diferenças** em
 3 ataques — `ANEpc-a1` (4 135 linhas, byte-idêntico), `ARR-Res-a1` (3 310, lado
-ARR *Response*) e `ANEc-a1` (5 368) — e em 2 normais com holdout — `normal_rr`
-(1 998) e `normal_nepc` (76 750), estes dois só com `src_mac` de metadado
-(ausente nos CSVs normais da Fase 2 e não usado por `identity=ip`).
+ARR *Response*) e `ANEc-a1` (5 368) — e em 3 normais com holdout — `normal_rr`
+(1 998), `normal_nepc` (76 750) e `normal_nec` (496 570) — total **588 131
+linhas**; nos normais a única diferença é `src_mac` (metadado ausente nos CSVs
+da Fase 2 e não usado por `identity=ip`).
 `ARR-Req-a1` não serve para este teste porque o pcap em disco já não é o da
 execução congelada; a divergência foi **corrida e quantificada** à parte em
 `report_arrreqa1.json` (19 050 / 21 907 diffs no prefixo comum, todas as

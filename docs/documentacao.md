@@ -15,7 +15,8 @@ transição de estado (Fase 4) e os algoritmos de deteção real-time/retroativo
 - Fase 5 (IDS + avaliação): [`ids_model.md`](ids_model.md) ·
   relatório final [`relatorio_fase5.md`](relatorio_fase5.md) ·
   plano do R3 (não implementado) [`attacker_sd_plan.md`](attacker_sd_plan.md)
-- Fase 6 (modo online / ao vivo): [`ids_live.md`](ids_live.md)
+- Fase 6 (modo online / ao vivo): [`ids_live.md`](ids_live.md) ·
+  relatório consolidado [`relatorio_fase6.md`](relatorio_fase6.md)
 - Comandos: `./scripts/smoke_test.sh` (Fase 1) · `./scripts/gen_dataset.sh`
   (Fase 2) · `./scripts/gen_attack_dataset.sh` (Fase 3) ·
   `python3 tools/extract_features.py` (Fase 4) ·
@@ -524,9 +525,11 @@ em [`relatorio_fase5.md`](relatorio_fase5.md) §E1b; artefatos em
 - [x] Fase 6 (Estágio A) — modo **online**: `feature_logic.py` partilhado
       (regressão: 14 CSVs bit-idênticos), `ids_live.py` (Algoritmo 1 + 2 com
       janela T = 3 s, só inferência) e validação de equivalência contra
-      `baseline_v3` em **5 datasets**: 0 / 4 135 (`ANEpc-a1`), 0 / 3 310
-      (`ARR-Res-a1`), 0 / 5 368 (`ANEc-a1`), 0 / 1 998 (`normal_rr`) e
-      0 / 76 750 (`normal_nepc`, só `src_mac` de metadado); `ARR-Req-a1`
+      `baseline_v3` em **6 datasets**: 0 / 4 135 (`ANEpc-a1`), 0 / 3 310
+      (`ARR-Res-a1`), 0 / 5 368 (`ANEc-a1`), 0 / 1 998 (`normal_rr`),
+      0 / 76 750 (`normal_nepc`) e 0 / 496 570 (`normal_nec`) — **588 131
+      linhas**, sem divergência de classificação (os normais só diferem em
+      `src_mac`, metadado); `ARR-Req-a1`
       divergente **quantificado e justificado** à parte
       (`report_arrreqa1.json`); `ids_live.md` + `ids_model.md` §11
 - [x] Fase 6 — teto de segurança de sessões em espera (V-C 1+3):
@@ -551,6 +554,10 @@ em [`relatorio_fase5.md`](relatorio_fase5.md) §E1b; artefatos em
       0,123→0,254. Duas armadilhas do teste documentadas (o host reencaminha
       as tramas → cópias duplas; timestamps do pcap no passado) —
       `ids_live.md` §8
+- [x] Fase 6 — **relatório consolidado** [`relatorio_fase6.md`](relatorio_fase6.md):
+      o que a fase provou (equivalência 0/0 em 6 datasets, o bug `is_sd`
+      apanhado pela validação, os limites de tempo/memória, o efeito medido
+      do `--session-max-age` e o jitter do Estágio B)
 ### Estado do git
 
 - **Fase 1:** commitada (3 commits, pushados).
@@ -565,6 +572,10 @@ em [`relatorio_fase5.md`](relatorio_fase5.md) §E1b; artefatos em
 - **Fase 5:** commitada (`edbd32c` — IDS + avaliação + docs) e `bc80bc6`
   (`.gitignore` do PDF do artigo) — **pushadas para `origin/main`**
   (`main == origin/main == bc80bc6`, fast-forward, sem rewrite de história).
+- **Fase 6:** 2 commits locais — `131befd` (Estágio A: `feature_logic.py`,
+  `ids_live.py`, `validate_ids_live.py`, equivalência 0/0) e `e19378a`
+  (Estágio B: replay ao vivo + jitter) + o relatório consolidado
+  (`docs/relatorio_fase6.md`) — **sem push**.
 - **Working tree:** o `E1b` (Parte VI §6.5) acrescenta `--learn-holdout` a
   `extract_features.py`, o comparador `experiment_e1b_report.py` e
   `results/exp_E1b/` — commit **local**, sem push. `datasets/**.pcap|.csv` e
