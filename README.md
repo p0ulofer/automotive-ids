@@ -13,6 +13,7 @@ O projeto tem **cinco fases**, todas executáveis do zero:
 | **3** | datasets de **ataque** (11 sets, variante (a) MITM) | `./scripts/gen_attack_dataset.sh <id>` | [`docs/attack_datasets.md`](docs/attack_datasets.md) |
 | **4** | **features** de transição (Tabela IV) | `python3 tools/extract_features.py` | [`docs/feature_model.md`](docs/feature_model.md) |
 | **5** | **IDS** real-time + retroativo + avaliação | `python3 tools/evaluate_ids.py` | [`docs/relatorio_fase5.md`](docs/relatorio_fase5.md) |
+| **6** | **IDS online** (ao vivo, mesmo modelo congelado) | `python3 tools/ids_live.py --interface eth0` | [`docs/ids_live.md`](docs/ids_live.md) |
 
 O **resultado final** (comparação com os alvos do artigo, limitações e o que
 mudaria) está em [`docs/relatorio_fase5.md`](docs/relatorio_fase5.md).
@@ -230,11 +231,12 @@ Detalhe completo (incluindo a alternativa descartada
 
 | documento | conteúdo |
 |---|---|
-| [`docs/documentacao.md`](docs/documentacao.md) | relatório geral das Fases 1–5 (mapa, checklist, git) |
+| [`docs/documentacao.md`](docs/documentacao.md) | relatório geral das Fases 1–6 (mapa, checklist, git) |
 | [`docs/relatorio_fase2.md`](docs/relatorio_fase2.md) | Fase 2 (datasets normais), evidências |
 | [`docs/attack_datasets.md`](docs/attack_datasets.md) · [`docs/attack_model.md`](docs/attack_model.md) | Fase 3 (tabela aprovada · modelo/premissas/bugs) |
 | [`docs/feature_model.md`](docs/feature_model.md) | Fase 4 (features, limiares) |
 | [`docs/ids_model.md`](docs/ids_model.md) · [`docs/relatorio_fase5.md`](docs/relatorio_fase5.md) | Fase 5 (algoritmos, protocolos · relatório final) |
+| [`docs/ids_live.md`](docs/ids_live.md) | Fase 6 (modo online: arquitetura, latência, memória, validação) |
 | [`docs/attacker_sd_plan.md`](docs/attacker_sd_plan.md) | R3 (atacante sem SD) — **plano, não implementado** |
 
 ---

@@ -15,10 +15,12 @@ transição de estado (Fase 4) e os algoritmos de deteção real-time/retroativo
 - Fase 5 (IDS + avaliação): [`ids_model.md`](ids_model.md) ·
   relatório final [`relatorio_fase5.md`](relatorio_fase5.md) ·
   plano do R3 (não implementado) [`attacker_sd_plan.md`](attacker_sd_plan.md)
+- Fase 6 (modo online / ao vivo): [`ids_live.md`](ids_live.md)
 - Comandos: `./scripts/smoke_test.sh` (Fase 1) · `./scripts/gen_dataset.sh`
   (Fase 2) · `./scripts/gen_attack_dataset.sh` (Fase 3) ·
   `python3 tools/extract_features.py` (Fase 4) ·
-  `python3 tools/evaluate_ids.py` (Fase 5)
+  `python3 tools/evaluate_ids.py` (Fase 5) ·
+  `python3 tools/ids_live.py` (Fase 6)
 
 ---
 
@@ -519,6 +521,31 @@ em [`relatorio_fase5.md`](relatorio_fase5.md) §E1b; artefatos em
       (70 %); `relatorio_fase5.md` §E1b (Parte VI §6.5)
 - [ ] Fase 5 (pendente) — **R3** (atacante sem SD / CS arms) e os 14 sets
       (b)/(c): decisão de escopo do utilizador (`attacker_sd_plan.md`)
+- [x] Fase 6 (Estágio A) — modo **online**: `feature_logic.py` partilhado
+      (regressão: 14 CSVs bit-idênticos), `ids_live.py` (Algoritmo 1 + 2 com
+      janela T = 3 s, só inferência) e validação de equivalência contra
+      `baseline_v3` em **5 datasets**: 0 / 4 135 (`ANEpc-a1`), 0 / 3 310
+      (`ARR-Res-a1`), 0 / 5 368 (`ANEc-a1`), 0 / 1 998 (`normal_rr`) e
+      0 / 76 750 (`normal_nepc`, só `src_mac` de metadado); `ARR-Req-a1`
+      divergente **quantificado e justificado** à parte
+      (`report_arrreqa1.json`); `ids_live.md` + `ids_model.md` §11
+- [x] Fase 6 — teto de segurança de sessões em espera (V-C 1+3):
+      `--session-hold-timeout` = 300 s (`_expire_holds`), libertação de memória
+      (linhas compactas por sessão, poda de sessões) e auto-teste 10/10 no
+      relatório
+- [x] Fase 6 — **separação dos papéis**: a ordem global por `idx` no
+      `retro_*.csv` não é requisito de operação (a marca retroativa é por
+      sessão) → emissão **por sessão** no modo ao vivo; o comparador é que
+      ordena por `idx`. Memória limitada com `--session-max-age`
+      (240 MB → 90 MB em `normal_nepc`); o buffer em disco não é necessário
+      (`ids_live.md` §5.2–§5.3)
+- [x] Fase 6 — variante `--session-max-age 60` **formalizada** no relatório
+      (`report.json` → `session_max_age`): Algoritmo 1 com 0 diffs em todos os
+      datasets; o corte **parte a janela V-C 2** na fronteira (0 linhas em 4/5
+      datasets, 51 linhas em `ARR-Res-a1`, TPR 0,136→0,101) — mecanismo e
+      trade-off em `ids_live.md` §6.4
+- [ ] Fase 6 (pendente) — Estágio B: replay **ao vivo** pela rede
+      (`sendp`/Docker) e quantificação do jitter
 
 ### Estado do git
 
@@ -562,4 +589,12 @@ python3 tools/evaluate_ids.py \                          # Fase 5: avaliação
     --features-dir features --identity ip --holdout 0.3 \
     --retro-window 3 --results-dir results/baseline_v3/ip \
     --out results/baseline_v3/ip/report.json
+
+python3 tools/ids_live.py --interface eth0 \            # Fase 6: online
+    --out-dir results/ids_live/run1
+python3 tools/ids_live.py --pcap datasets/attack/ANEpc-a1.pcap \
+    --labels-csv datasets/attack/ANEpc-a1.csv \
+    --out-dir results/ids_live_validation/ANEpc-a1       # replay determinístico
+python3 tools/validate_ids_live.py \                     # Fase 6: equivalência
+    --normal normal_rr --normal normal_nepc
 ```

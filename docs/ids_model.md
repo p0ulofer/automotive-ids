@@ -886,4 +886,68 @@ atacante ser **nova e isolada** (médias frias); um atacante que reutilize uma
 identidade de remetente existente não produziria este hit — mas é precisamente
 a premissa do R3 que o remetente SD do atacante é distinto.
 
+---
+
+## 11. Modo online (Fase 6) — ver `ids_live.md`
+
+A Fase 6 acrescenta um **modo de operação em tempo real** (`tools/ids_live.py`)
+que captura tráfego ao vivo (scapy) e classifica cada pacote SOME/IP com os
+**mesmos dois algoritmos** documentados neste documento, na configuração
+congelada `baseline_v3` / identidade `ip`, **sem payload-state (E3)** e com a
+janela retroactiva **T = 3 s** (§10.1).
+
+O modo offline continua a existir e a ser a referência: nada em
+`results/baseline_v3/`, `datasets/*`, `features/*` ou neste documento foi
+alterado pela Fase 6.
+
+Pontos que tocam este documento:
+
+| tópico deste documento | equivalente no modo online |
+|---|---|
+| §1.1 tupla de estado | idêntica; calculada por `ids_common.state_tuple` sobre as mesmas features |
+| §1.5 `avg-cold-start` | idêntico (`use`), agora por stream recém-vista em vez de por CSV |
+| §3.1 definição de sessão (timeout 10 s) | idêntica; implementada incrementalmente (`expiry_heap`). Diferença: no online **não há fim de captura** — uma sessão que nunca fica inactiva nunca fecha (`ids_live.md` §5.3) |
+| §3.2 gatilhos V-C 1+3 e V-C 2 | idênticos; o V-C 2 usa a janela T = 3 s do §10.1 |
+| §5 cold start / primeiros pacotes | idêntico, documentado em `ids_live.md` §4 |
+
+**Teto de tempo/memória (só no online):** uma sessão **fechada** cujo serviço
+nunca excede os CSs ficaria em espera para sempre; existe o teto rígido
+`--session-hold-timeout` (**300 s**, `0` = desligar) que a finaliza **sem** o
+gatilho V-C 1+3 e liberta o estado (`ids_live.md` §5.1, auto-teste 10/10 no
+relatório de validação). Uma sessão que nunca fica inactiva nunca fecha — o
+`--session-max-age` corta-a como o EOF faria (`ids_live.md` §5.3).
+
+**Ordem de saída:** o `retro_*.csv` do modo online vai por ordem de **decisão**
+(sessão fechada), sem ordem global por `idx`. Isto é correcto porque a marca
+retroativa é **por sessão** (como no offline, §3.2: `hits[skey]`,
+`interval_poisoned`): o veredito de uma linha não depende da ordem das outras.
+Quem precisar de ordem global reordena pelo `idx` — é o que faz o comparador
+de validação (`ids_live.md` §5.2).
+
+**Não duplicar lógica:** as features de transição (dt, médias W = 10, bins,
+`n_cs`, `os`, `dp`) estão em `tools/feature_logic.py`, **partilhado** entre o
+`extract_features.py` (offline) e o `ids_live.py` (online). A descodificação
+SOME/IP está partilhada em `pcap_to_csv.packet_to_rows`.
+
+**Latência de decisão (inerente ao Algoritmo 2):** o veredito final de um pacote
+não é imediato — V-C 2 exige segurar até **T = 3 s** (um hit futuro pode marcar
+pacotes anteriores da mesma sessão) e V-C 1+3 exige esperar pelo **fim da
+sessão** (timeout de 10 s). Ver `ids_live.md` §3.
+
+**Validação de equivalência:** o modo online foi confrontado com o `baseline_v3`
+congelado, pacote a pacote (`tools/validate_ids_live.py`, artefacto em
+`results/ids_live_validation/report.json`, `ok: true`): **0 diferenças** em
+3 ataques — `ANEpc-a1` (4 135 linhas, byte-idêntico), `ARR-Res-a1` (3 310, lado
+ARR *Response*) e `ANEc-a1` (5 368) — e em 2 normais com holdout — `normal_rr`
+(1 998) e `normal_nepc` (76 750), estes dois só com `src_mac` de metadado
+(ausente nos CSVs normais da Fase 2 e não usado por `identity=ip`).
+`ARR-Req-a1` não serve para este teste porque o pcap em disco já não é o da
+execução congelada; a divergência foi **corrida e quantificada** à parte em
+`report_arrreqa1.json` (19 050 / 21 907 diffs no prefixo comum, todas as
+`timestamp` diferentes) — ver `nota_divergencia_arrreqa1.md` e `ids_live.md`
+§6.2.
+
+Arquitetura, latência, cold start, limites de memória e como correr a demo:
+**[`ids_live.md`](ids_live.md)**.
+
 

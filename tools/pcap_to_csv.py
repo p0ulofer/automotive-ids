@@ -200,6 +200,107 @@ def parse_sd_payload(sd_data):
     return entries, options
 
 
+CSV_FIELDS = [
+    "timestamp", "src_ip", "dst_ip", "src_port", "dst_port",
+    "service_id", "instance_id", "method_event_id", "client_id",
+    "session_id", "message_type", "message_type_name",
+    "return_code", "return_code_name", "protocol_version",
+    "payload_hex", "payload_len",
+    "is_sd", "sd_entries", "sd_options", "sd_entry_types",
+    "src_mac", "label",
+]
+
+
+def packet_to_rows(pkt, label=0, attacker_mac=None):
+    """Converte um pacote scapy num ou mais dicts de linha (formato CSV).
+
+    Um datagrama UDP pode conter VARIAS mensagens SOME/IP concatenadas
+    (vsomeip junta, ex.: notificacao + resposta). Devolve uma lista; vazia se
+    o pacote nao for SOME/IP relevante.
+
+    Esta funcao e' a fonte unica da descodificacao usada pelo pipeline offline
+    (`pcap_to_csv.py`) e pelo modo online (`ids_live.py`), garantindo que ambos
+    produzem exactamente as mesmas linhas para o mesmo pacote.
+
+    Devolve TODOS os campos ja como `str`, exactamente no formato do CSV gerado
+    pelo `pcap_to_csv` (o pipeline offline le os CSVs com `csv.DictReader`,
+    cujos valores sao strings). Comparacoes como `row["is_sd"] == "1"` tem de
+    funcionar igual nos dois caminhos.
+    """
+    rows = []
+    if IP not in pkt or UDP not in pkt:
+        return rows
+    ip = pkt[IP]
+    udp = pkt[UDP]
+    if (udp.sport not in KNOWN_SERVICE_PORTS
+            and udp.dport not in KNOWN_SERVICE_PORTS):
+        return rows
+    raw = bytes(udp.payload) if udp.payload else b""
+
+    # Percorre: tamanho = 8 + campo length (uint32 no offset 4).
+    pos = 0
+    while pos + 8 <= len(raw):
+        length = struct.unpack(">I", raw[pos + 4:pos + 8])[0]
+        msg_size = 8 + length
+        if length < 8 or pos + msg_size > len(raw):
+            break
+        msg = raw[pos:pos + msg_size]
+        pos += msg_size
+        if len(msg) < 16:
+            break
+
+        siap = parse_someip(msg)
+        if siap is None:
+            continue
+        is_sd = (udp.dport == SD_PORT or udp.sport == SD_PORT
+                 or siap["service_id"] == 0xFFFF)
+
+        sd_entries = sd_options = 0
+        sd_entry_types = ""
+        instance_id = SERVICE_INSTANCES.get(siap["service_id"], 0x0000)
+        if is_sd:
+            entries, options = parse_sd_payload(siap["data"])
+            sd_entries = len(entries)
+            sd_options = len(options)
+            sd_entry_types = ";".join(
+                f"{e['type']}x{e['num_options']}" for e in entries
+            )
+            if entries:
+                instance_id = entries[0]["instance_id"]
+
+        src_mac = (pkt[Ether].src.lower() if Ether in pkt else "")
+        if attacker_mac:
+            row_label = int(src_mac == attacker_mac.lower())
+        else:
+            row_label = label
+        rows.append({
+            "timestamp": f"{float(pkt.time):.6f}",
+            "src_ip": ip.src,
+            "dst_ip": ip.dst,
+            "src_port": str(udp.sport),
+            "dst_port": str(udp.dport),
+            "service_id": f"0x{siap['service_id']:04X}",
+            "instance_id": f"0x{instance_id:04X}",
+            "method_event_id": f"0x{siap['method_event_id']:04X}",
+            "client_id": f"0x{siap['client_id']:04X}",
+            "session_id": f"0x{siap['session_id']:04X}",
+            "message_type": f"0x{siap['message_type']:02X}",
+            "message_type_name": MSG_TYPES.get(siap["message_type"], "UNKNOWN"),
+            "return_code": f"0x{siap['return_code']:02X}",
+            "return_code_name": RETURN_CODES.get(siap["return_code"], "UNKNOWN"),
+            "protocol_version": f"0x{siap['protocol_version']:02X}",
+            "payload_hex": msg[16:].hex(),
+            "payload_len": str(len(msg) - 16),
+            "is_sd": str(int(is_sd)),
+            "sd_entries": str(sd_entries),
+            "sd_options": str(sd_options),
+            "sd_entry_types": sd_entry_types,
+            "src_mac": src_mac,
+            "label": str(row_label),
+        })
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser(description="Extrai SOME/IP de pcap para CSV.")
     ap.add_argument("pcap", help="pcap de entrada")
@@ -212,104 +313,24 @@ def main():
 
     out_path = Path(args.out) if args.out else Path(args.pcap).with_suffix(".csv")
 
-    fields = [
-        "timestamp", "src_ip", "dst_ip", "src_port", "dst_port",
-        "service_id", "instance_id", "method_event_id", "client_id",
-        "session_id", "message_type", "message_type_name",
-        "return_code", "return_code_name", "protocol_version",
-        "payload_hex", "payload_len",
-        "is_sd", "sd_entries", "sd_options", "sd_entry_types",
-        "src_mac", "label",
-    ]
-
     n_total = n_someip = n_sd = 0
     n_skipped = 0
 
     with open(out_path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
+        w = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         w.writeheader()
 
         for pkt in PcapReader(args.pcap):
             n_total += 1
-            if IP not in pkt or UDP not in pkt:
+            rows = packet_to_rows(pkt, label=args.label,
+                                  attacker_mac=args.attacker_mac)
+            if not rows:
                 n_skipped += 1
                 continue
-            ip = pkt[IP]
-            udp = pkt[UDP]
-            if (udp.sport not in KNOWN_SERVICE_PORTS
-                    and udp.dport not in KNOWN_SERVICE_PORTS):
-                n_skipped += 1
-                continue
-            raw = bytes(udp.payload) if udp.payload else b""
-            # O datagrama UDP pode convar VARIAS mensagens SOME/IP
-            # concatenadas (vsomeip junta, ex.: notificacao + resposta).
-            # Percorre: tamanho = 8 + campo length (uint32 no offset 4).
-            pos = 0
-            n_msgs = 0
-            while pos + 8 <= len(raw):
-                length = struct.unpack(">I", raw[pos + 4:pos + 8])[0]
-                msg_size = 8 + length
-                if length < 8 or pos + msg_size > len(raw):
-                    break
-                msg = raw[pos:pos + msg_size]
-                pos += msg_size
-                if len(msg) < 16:
-                    break
-
-                siap = parse_someip(msg)
-                if siap is None:
-                    continue
-                n_msgs += 1
-                n_someip += 1
-                is_sd = (udp.dport == SD_PORT or udp.sport == SD_PORT
-                         or siap["service_id"] == 0xFFFF)
-
-                sd_entries = sd_options = 0
-                sd_entry_types = ""
-                instance_id = SERVICE_INSTANCES.get(siap["service_id"], 0x0000)
-                if is_sd:
-                    n_sd += 1
-                    entries, options = parse_sd_payload(siap["data"])
-                    sd_entries = len(entries)
-                    sd_options = len(options)
-                    sd_entry_types = ";".join(
-                        f"{e['type']}x{e['num_options']}" for e in entries
-                    )
-                    if entries:
-                        instance_id = entries[0]["instance_id"]
-
-                src_mac = (pkt[Ether].src.lower() if Ether in pkt else "")
-                if args.attacker_mac:
-                    row_label = int(src_mac == args.attacker_mac.lower())
-                else:
-                    row_label = args.label
-                w.writerow({
-                    "timestamp": f"{float(pkt.time):.6f}",
-                    "src_ip": ip.src,
-                    "dst_ip": ip.dst,
-                    "src_port": udp.sport,
-                    "dst_port": udp.dport,
-                    "service_id": f"0x{siap['service_id']:04X}",
-                    "instance_id": f"0x{instance_id:04X}",
-                    "method_event_id": f"0x{siap['method_event_id']:04X}",
-                    "client_id": f"0x{siap['client_id']:04X}",
-                    "session_id": f"0x{siap['session_id']:04X}",
-                    "message_type": f"0x{siap['message_type']:02X}",
-                    "message_type_name": MSG_TYPES.get(siap["message_type"], "UNKNOWN"),
-                    "return_code": f"0x{siap['return_code']:02X}",
-                    "return_code_name": RETURN_CODES.get(siap["return_code"], "UNKNOWN"),
-                    "protocol_version": f"0x{siap['protocol_version']:02X}",
-                    "payload_hex": msg[16:].hex(),
-                    "payload_len": len(msg) - 16,
-                    "is_sd": int(is_sd),
-                    "sd_entries": sd_entries,
-                    "sd_options": sd_options,
-                    "sd_entry_types": sd_entry_types,
-                    "src_mac": src_mac,
-                    "label": row_label,
-                })
-            if n_msgs == 0:
-                n_skipped += 1
+            n_someip += len(rows)
+            n_sd += sum(int(r["is_sd"]) for r in rows)
+            for row in rows:
+                w.writerow(row)
 
     print(f"[pcap_to_csv] {n_total} pacotes lidos -> {n_someip} SOME/IP "
           f"({n_sd} SD) -> {out_path}")
