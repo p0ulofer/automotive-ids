@@ -1,0 +1,82 @@
+# =============================================================================
+# docker-compose.ids.yml -- Fase 6 (extensao): IDS embarcado no ecu2 (gateway)
+#
+# O `ids-ecu2` e' um SIDECAR: partilha o network namespace do ecu2
+# (`network_mode: "service:ecu2"`), pelo que ve' exactamente as mesmas
+# interfaces que o gateway (net1 e net2), sem alterar a imagem
+# `automotive-ids/vsomeip:latest` nem a configuracao do ecu2.
+#
+# Uso (sempre em conjunto com o compose base, que define o ecu2):
+#
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.datasets.yml \
+#                  -f docker-compose.attacker.yml \
+#                  -f docker-compose.ids.yml up -d --no-build
+#
+#   # so' o sidecar (ecu2 ja' tem de estar up):
+#   docker compose -f docker-compose.yml -f docker-compose.ids.yml \
+#                  up -d --no-build ids-ecu2
+#
+# Paragem limpa (SIGINT -> ids_live.py faz flush do retro):
+#   docker compose -f docker-compose.yml -f docker-compose.ids.yml stop ids-ecu2
+#
+# Variaveis (opcionais):
+#   IDS_IFACE=net1|net2|auto|<iface>   interface a escutar (default: net1)
+#                                      (a validacao usa um nome explicito:
+#                                       IDS_IFACE=mirror0; ver docs/ids_live.md §9)
+#   IDS_RUN_DIR=<subdir>               subdir dentro de results/ids_live_ecu2/
+#   IDS_RUN_NAME=<nome>                prefixo dos CSV (default: sidecar)
+#   IDS_SESSION_MAX_AGE=<s>            --session-max-age (default: 60)
+#
+# Notas de seguranca/fidelidade:
+#   * sem NET_ADMIN: o sidecar so' precisa de NET_RAW (default do Docker) para
+#     sniffing; nao pode alterar rotas/iptables do namespace do ecu2;
+#   * o entrypoint da imagem attacker (que arrancaria vsomeipd) e' substituido;
+#   * results/baseline_v3 e' montado READ-ONLY (artefacto congelado); so' o
+#     directorio de resultados do IDS e' writable.
+# =============================================================================
+
+services:
+  ids-ecu2:
+    image: automotive-ids/attacker:latest
+    container_name: ids-ecu2
+
+    # Partilha exactamente as interfaces do gateway (net1 + net2).
+    network_mode: "service:ecu2"
+    depends_on:
+      - ecu2
+
+    # SIGINT e' tratado pelo ids_live.py (KeyboardInterrupt -> finish()),
+    # que faz o flush das sessoes retroactivas ainda pendentes.
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+
+    # NAO usar o entrypoint da imagem (arrancaria o vsomeip do ecu6).
+    entrypoint: ["/bin/sh", "/work/scripts/ids_ecu2.sh"]
+    working_dir: /work
+
+    volumes:
+      - ./tools:/work/tools:ro
+      - ./features:/work/features:ro
+      - ./datasets:/work/datasets:ro
+      - ./scripts:/work/scripts:ro
+      # Artefacto congelado: apenas leitura.
+      - ./results/baseline_v3:/work/results/baseline_v3:ro
+      # Unico caminho writable (saidas do IDS).
+      - ./results/ids_live_ecu2:/work/results/ids_live_ecu2
+
+    environment:
+      IDS_IFACE: ${IDS_IFACE:-net1}
+      IDS_OUT_DIR: /work/results/ids_live_ecu2/${IDS_RUN_DIR:-sidecar}
+      IDS_NAME: ${IDS_RUN_NAME:-sidecar}
+      IDS_SESSION_MAX_AGE: ${IDS_SESSION_MAX_AGE:-60}
+      # O mesmo filtro do tcpdump por interface do gen_attack_dataset.sh:
+      # garante que o sidecar e a referencia host (mirror) veem o mesmo
+      # conjunto de pacotes na validacao de equivalencia.
+      IDS_BPF_FILTER: "udp and (port 30490 or port 30509 or port 30510 or port 30511)"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

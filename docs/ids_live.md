@@ -671,7 +671,179 @@ Conclusões do Estágio B:
 
 ---
 
-## 9. Estado da validação
+## 9. IDS embarcado no ecu2 (sidecar, Fase 6 — extensão)
+
+O Estágio B (§8) valida o `ids_live.py` num caminho controlado (par de veth
+directo). Esta extensão valida a variante operacional: o IDS a correr **dentro
+do gateway**, no network namespace do ecu2, sem alterar a imagem
+`automotive-ids/vsomeip:latest` nem a configuração do ecu2.
+
+### 9.1 Porque não basta escutar a interface do ecu2
+
+A primeira tentativa foi o óbvio: `ids-ecu2` a escutar a interface net1 do
+ecu2 (`192.168.1.1`, `eth0`). O IDS arrancou e produziu 933 linhas — as mesmas
+estatísticas da referência host — mas **zero linhas com o MAC do atacante**.
+A razão é estrutural: um veth só entrega ao contentor o tráfego endereçado a
+ele (ou broadcast/multicast). O unicast `ecu1 ↔ ecu6`, onde vive o ataque, não
+passa pela interface do ecu2.
+
+Escutar na bridge (`br-…`) também não serve: a bridge entrega a mesma trama ao
+sniffer mais do que uma vez. Foi o que produziu o `results/ids_live/demo/`
+inválido (1861 linhas para ~930 tramas, sem labels coerentes). Uma captura
+assim não pode ser referência de comparação.
+
+Conclusão: a localização (host vs. gateway) tem de ser validada sobre uma
+**cópia única por trama do segmento net1**, não sobre a interface do gateway
+nem sobre a bridge.
+
+### 9.2 Montagem: mirror por `tc ingress`
+
+```
+ecu1 ──veth─┐                         ┌─ veth ── ecu2 (gateway)
+            │   br-… (net1)           │
+ecu6 ──veth─┼─────────────┬───────────┘
+            │             │
+      tc ingress      tc ingress      tc ingress
+      (mirror)        (mirror)        (mirror)
+            └─────────────┴──────────────┐
+                                         v
+                            mirrorh (host) ══ mirror0 (netns ecu2)
+                              │                     │
+                     ids_live + tcpdump        ids-ecu2 (sidecar)
+```
+
+O `scripts/ids_ecu2_validation.sh`:
+
+1. resolve os veths do host de `ecu1`, `ecu2` e `ecu6` (pelo IP/`iflink`,
+   porque `eth0`/`eth1` alternam entre recriações);
+2. cria o par `mirrorh` (host) ↔ `mirror0` e move `mirror0` para o netns do
+   ecu2;
+3. instala `tc qdisc ingress` + `tc filter … action mirred egress mirror dev
+   mirrorh` em cada um dos três veths.
+
+Cada veth só vê **ingress** (tramas enviadas pelo respectivo contentor), pelo
+que cada trama entra na bridge uma única vez: a origem é espelhada, o destino
+não. Validado com `ping`: 2 tramas ICMP (request + reply) → exactamente 2
+capturas em `mirror0` e 2 em `mirrorh`. Não há duplicação nem perda.
+
+As duas testemunhas ficam assim em pontos diferentes do mesmo caminho:
+
+- **referência host** — `ids_live.py` num contentor `--net=host` em `mirrorh`;
+- **sidecar** — `ids-ecu2` em `mirror0`, dentro do netns do ecu2.
+
+### 9.3 O sidecar
+
+`docker-compose.ids.yml` define `ids-ecu2` com:
+
+- `network_mode: "service:ecu2"` — partilha as interfaces do gateway;
+- imagem `automotive-ids/attacker:latest` (já tem Python 3 + scapy), com
+  `entrypoint` substituído por `scripts/ids_ecu2.sh`;
+- montagens **read-only** de `tools/`, `features/`, `datasets/` e
+  `results/baseline_v3/`; só `results/ids_live_ecu2/` é writable;
+- `stop_signal: SIGINT`, para o `ids_live.py` fazer `finish()` e descarregar as
+  sessões retroactivas pendentes;
+- o mesmo filtro BPF do `tcpdump` do laboratório
+  (`udp and (port 30490 or port 30509 or port 30510 or port 30511)`);
+- **sem `NET_ADMIN`** — só precisa de `NET_RAW` (default do Docker) para
+  sniffing; não altera rotas nem iptables do ecu2.
+
+`scripts/ids_ecu2.sh` resolve a interface por IP (`net1`, `net2`, `auto`) ou
+aceita um nome explícito (`mirror0`). A validação desta secção usa **net1
+apenas**; `net2`/`auto` ficam configuráveis mas não validados.
+
+### 9.4 Como se corre
+
+```bash
+./scripts/ids_ecu2_validation.sh ANEpc-a1 0.10
+./scripts/ids_ecu2_validation.sh ARR-Res-a1 0.10
+```
+
+Para **deixar o IDS a correr** e lançar o ataque manualmente (o modo usado
+para observar o IDS ao vivo):
+
+```bash
+# terminal 1 -- monta lab + mirror + sidecar e sai, deixando tudo a correr
+NO_ATTACK=1 ./scripts/ids_ecu2_validation.sh ANEpc-a1 0.10
+
+# terminal 2 -- ataque (pode ser repetido; o IDS acumula estado)
+SKIP_UP=1 NO_BUILD=1 ./scripts/gen_attack_dataset.sh ANEpc-a1 --scale 0.10
+
+# ver as decisões em tempo real
+docker logs -f ids-ecu2
+
+# parar: SIGINT ao sidecar (flush do retro), parar as testemunhas e remover
+# o tc mirror + veth mirrorh/mirror0
+DOWN=1 ./scripts/ids_ecu2_validation.sh
+```
+
+O `NO_ATTACK=1` grava o estado da sessão em
+`results/ids_live_ecu2/.live_state` (nomes dos contentores auxiliares e
+veths); é esse ficheiro que o `DOWN=1` usa para limpar, mesmo noutra shell.
+Sem `DOWN=1`, o mirror e os contentores continuam activos (útil para deixar o
+IDS a correr durante vários ataques).
+
+Cada execução normal (sem `NO_ATTACK`) levanta o laboratório (`--no-build`),
+monta o mirror, arranca as duas testemunhas, corre `gen_attack_dataset.sh` com
+`SKIP_UP=1` e compara.
+Artefactos em `results/ids_live_ecu2/<dataset>/`:
+
+```
+host/                    ids_live.py na referência host (mirrorh)
+sidecar/                 ids-ecu2 dentro do ecu2 (mirror0)
+mirror_host.pcap         captura passiva no mesmo par (prova de inputs)
+compare_<dataset>.json   veredicto + colunas + métricas
+metadata.json            veths, MAC do atacante, imagens, BPF
+```
+
+### 9.5 Resultados (`--scale 0.10`)
+
+| grandeza | `ANEpc-a1` (5 s) | `ARR-Res-a1` (15 s) |
+|---|---|---|
+| linhas `realtime` (host = sidecar) | 1 853 | 638 |
+| pares alinhados (tolerância 5 ms) | **1 853 (100 %)** | **638 (100 %)** |
+| `state` diferente | **0** | **0** |
+| alertas do Algoritmo 1 (host → sidecar) | **1 107 → 1 107** (Δ 0) | **330 → 330** (Δ 0) |
+| `final_anomaly` diferente | **0** | **0** |
+| TPR / FPR (host = sidecar) | 1,000 / 0,490 | 1,000 / 0,453 |
+| `dt_prev_res` abs (mediana / p95 / máx) | 0,014 / 0,048 / 0,241 ms | 0,014 / 0,050 / 0,233 ms |
+| pcap do mirror vs linhas do sidecar | 1 853 = 1 853 (multiset) | 638 = 638 (multiset) |
+| ordem relativa das mensagens | reordenada pelo jitter | igual |
+
+O `dt_prev_res` difere em 1 791/1 853 linhas (ANE) e 622/638 (ARR), mas sempre
+ao nível do **submilissegundo**: a discretização absorve o jitter e o `state`
+não muda em nenhuma linha. No ARR, a ordem relativa também se mantém; no ANE,
+mensagens quase simultâneas trocam de ordem (é precisamente o envelope de
+jitter, não uma perda). O pcap do mirror confirma que o sidecar viu o **mesmo
+multiset** de mensagens.
+
+**Volume ≈2× o do dataset reconstruído** (1 853 vs 929; 638 vs 325). Não é
+duplicação do mirror: o atacante reencaminha as tramas preservando o MAC de
+origem, pelo que no fio existem a trama original e a re-injeção. O merge do
+`gen_attack_dataset.sh` remove a re-injeção como “duplicada lógica”; as tramas
+adulteradas (payload diferente) não são duplicadas e são as que o dataset
+conta como `label=1`. O IDS embarcado vê o segmento tal como ele é — daí que as
+métricas **absolutas** desta tabela (FPR incluído) não sejam comparáveis ao
+`baseline_v3`; a comparação válida aqui é host ↔ sidecar, com os mesmos inputs.
+
+### 9.6 Critério de equivalência
+
+Tal como no Estágio B, o critério **não** é 0/0 bit-a-bit. É “**mesmas
+classificações dentro do envelope de jitter**”:
+
+- ≥ 99 % das linhas emparelhadas;
+- ≤ 0,5 % de `state` diferente;
+- ≤ 5 alertas de diferença no Algoritmo 1;
+- ≤ 10 % de `final_anomaly` diferente;
+- ΔTPR ≤ 0,02.
+
+Os dois datasets passam todos os critérios (`equivalent_within_jitter: true`).
+Os limites são os do envelope já medido no Estágio B (0,06–0,24 % de `state`,
+2–3 alertas, 7,6 % de linhas reclassificadas); aqui ficaram ainda mais folgados
+porque as duas testemunhas partilham o mesmo ponto de captura e o mesmo kernel.
+
+---
+
+## 10. Estado da validação
 
 | passo | estado |
 |---|---|
@@ -689,8 +861,13 @@ Conclusões do Estágio B:
 | Buffer de sessão **ainda aberta** limitado | **sim**, com `--session-max-age` (corte como o EOF): 240 MB → 90 MB e 71 996/76 750 linhas escritas em fluxo (§5.3). Default `0` = semântica exacta |
 | Variante `--session-max-age 60` **formalizada** no relatório | `report.json` → `session_max_age`: A1 **0 diffs** em todos; desvio do A2 na fronteira do corte (0 linhas em 4/6 datasets, **51 linhas em `ARR-Res-a1`** e 642 em `normal_nec` — mecanismo em §6.4) |
 | Replay ao vivo pela rede (`sendp`/Docker, `--interface`) + quantificação do jitter | **feito (Estágio B, §8)**: jitter de captura mediana 0,082 ms · `state` diverge em 10/4 135 linhas · 3 alertas extra · 314 linhas reclassificadas pelo V-C 2 · TPR 1,000→1,000, FPR 0,123→0,254 |
+| IDS embarcado no ecu2 (sidecar) vs referência host — `ANEpc-a1` | **feito (§9)**: 1 853/1 853 pares · 0 `state` diffs · 1 107 = 1 107 alertas · 0 `final_anomaly` · TPR 1,000 = 1,000 · pcap do mirror com o mesmo multiset |
+| IDS embarcado no ecu2 (sidecar) vs referência host — `ARR-Res-a1` | **feito (§9)**: 638/638 pares · 0 `state` diffs · 330 = 330 alertas · 0 `final_anomaly` · TPR 1,000 = 1,000 · pcap do mirror com o mesmo multiset |
 
 Relatórios máquina:
 
 - `results/ids_live_validation/report.json` — 6 datasets + variante `--session-max-age` + auto-teste do teto (`ok: true`);
-- `results/ids_live_validation/report_arrreqa1.json` — divergência documentada de `ARR-Req-a1` (`ok: false`, à propósito).
+- `results/ids_live_validation/report_arrreqa1.json` — divergência documentada de `ARR-Req-a1` (`ok: false`, à propósito);
+- `results/ids_live_ecu2/ANEpc-a1/compare_ANEpc-a1.json` e
+  `results/ids_live_ecu2/ARR-Res-a1/compare_ARR-Res-a1.json` — equivalência
+  sidecar vs host (`equivalent_within_jitter: true`).

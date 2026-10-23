@@ -21,11 +21,27 @@
 #
 # --scale N: fracao do tempo total (0.05 = 5% do volume alvo).
 # Seeds fixas no YAML => runs reprodutiveis.
+#
+# Variaveis de ambiente (opcionais; nao alteram o comportamento por omissao):
+#   IDS_ECU2=1   inclui o sidecar ids-ecu2 (docker-compose.ids.yml) no up
+#   NO_BUILD=1   nao rebuilda imagens (preserva a imagem do ecu2; usar --no-build)
+#   SKIP_UP=1    nao faz compose up (laboratorio ja' levantado por outro script)
 # =============================================================================
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+# --- compose / build (env) ---------------------------------------------------
+COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.datasets.yml \
+               -f docker-compose.attacker.yml)
+if [[ "${IDS_ECU2:-0}" = "1" ]]; then
+    COMPOSE_FILES+=(-f docker-compose.ids.yml)
+fi
+BUILD_FLAGS=(--build)
+if [[ "${NO_BUILD:-0}" = "1" ]]; then
+    BUILD_FLAGS=(--no-build)
+fi
 
 warn()  { echo "[gen_attack] $*"; }
 die()   { echo "[gen_attack][ERRO] $*" >&2; exit 1; }
@@ -141,10 +157,13 @@ else
 fi
 
 # --- 2. sobe ambiente (datasets + attacker) ----------------------------------
-warn "docker compose up (datasets + attacker)..."
-docker compose -f docker-compose.yml -f docker-compose.datasets.yml \
-    -f docker-compose.attacker.yml up -d --build 2>&1 | tail -3
-sleep 12
+if [[ "${SKIP_UP:-0}" = "1" ]]; then
+    warn "SKIP_UP=1 -> a assumir laboratorio ja' levantado (sem compose up)"
+else
+    warn "docker compose up (datasets + attacker)..."
+    docker compose "${COMPOSE_FILES[@]}" up -d "${BUILD_FLAGS[@]}" 2>&1 | tail -3
+    sleep 12
+fi
 
 ./scripts/smoke_test.sh --host-raw up >/dev/null 2>&1 \
     || die "falha ao aplicar excecoes raw"

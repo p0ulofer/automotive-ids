@@ -232,6 +232,7 @@ Detalhe completo (incluindo a alternativa descartada
 | documento | conteúdo |
 |---|---|
 | [`docs/documentacao.md`](docs/documentacao.md) | relatório geral das Fases 1–6 (mapa, checklist, git) |
+| [`docs/comandos.md`](docs/comandos.md) | **referência operacional**: todos os comandos, flags e finalidade |
 | [`docs/relatorio_fase2.md`](docs/relatorio_fase2.md) | Fase 2 (datasets normais), evidências |
 | [`docs/attack_datasets.md`](docs/attack_datasets.md) · [`docs/attack_model.md`](docs/attack_model.md) | Fase 3 (tabela aprovada · modelo/premissas/bugs) |
 | [`docs/feature_model.md`](docs/feature_model.md) | Fase 4 (features, limiares) |

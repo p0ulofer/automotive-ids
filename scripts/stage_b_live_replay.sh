@@ -17,6 +17,9 @@ set -euo pipefail
 
 DATASET="${1:-ANEpc-a1}"
 NET="${NET:-someip_stageb}"
+# Sub-rede PROPRIA do teste: 192.168.2.0/24 e' a do lab (net2) e o
+# "docker network create" falharia com "pool overlaps".
+SUBNET="${SUBNET:-172.31.0.0/16}"
 IMG="${IMG:-automotive-ids/attacker:latest}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PCAP="$ROOT/datasets/attack/${DATASET}.pcap"
@@ -33,9 +36,9 @@ trap cleanup EXIT
 [ -f "$PCAP" ] || { echo "ERRO: sem pcap $PCAP" >&2; exit 1; }
 
 if ! docker network inspect "$NET" >/dev/null 2>&1; then
-    docker network create --driver bridge --subnet 192.168.2.0/24 "$NET" \
+    docker network create --driver bridge --subnet "$SUBNET" "$NET" \
         >/dev/null
-    echo "[stageb] rede $NET criada (192.168.2.0/24)"
+    echo "[stageb] rede $NET criada ($SUBNET)"
 fi
 
 mkdir -p "$OUT"
